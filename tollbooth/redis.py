@@ -97,7 +97,7 @@ class RedisEngine(Engine):
         self._r.set(self._rkey("config"), json.dumps(cfg))
         self._r.set(
             self._rkey("rules"),
-            json.dumps([asdict(r) for r in self.policy.rules]),
+            json.dumps([asdict(r, dict_factory=dict) for r in self.policy.rules]),
         )
 
     def _pull_config(self):
