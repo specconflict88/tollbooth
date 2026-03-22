@@ -5,12 +5,15 @@ import ipaddress
 import json
 import re
 import secrets
-import struct
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 from typing import TypedDict
+
+from .challenges import ChallengeBase, ChallengeHandler, SHA256Balloon
+
+Challenge = ChallengeBase
 
 COOKIE_NAME = "_tollbooth"
 VERIFY_PATH = "/.tollbooth/verify"
@@ -19,65 +22,6 @@ COOKIE_TTL = 604800
 CHALLENGE_THRESHOLD = 5
 MAX_STORE_SIZE = 100_000
 DEFAULT_DIFFICULTY = 10
-BALLOON_SPACE_COST = 1024
-BALLOON_TIME_COST = 1
-BALLOON_DELTA = 3
-
-
-def _count_leading_zero_bits(data: bytes) -> int:
-    for i, byte in enumerate(data):
-        if byte:
-            return i * 8 + (8 - byte.bit_length())
-    return len(data) * 8
-
-
-def _balloon(
-    prefix: str,
-    nonce: int,
-    space_cost: int,
-    time_cost: int,
-    delta: int,
-) -> bytes:
-    data = (prefix + str(nonce)).encode()
-    buf = bytearray(space_cost * 32)
-    counter = 0
-
-    def sha(ctr, *parts):
-        return hashlib.sha256(struct.pack("<I", ctr) + b"".join(parts)).digest()
-
-    def get(i):
-        return bytes(buf[i * 32 : (i + 1) * 32])
-
-    def put(i, val):
-        buf[i * 32 : (i + 1) * 32] = val
-
-    put(0, sha(counter, data))
-    counter += 1
-
-    for i in range(1, space_cost):
-        put(i, sha(counter, get(i - 1)))
-        counter += 1
-
-    for t in range(time_cost):
-        for i in range(space_cost):
-            prev = (i - 1) % space_cost
-            put(i, sha(counter, get(prev), get(i)))
-            counter += 1
-
-            for j in range(delta):
-                param = struct.pack("<IIII", counter, t, i, j)
-                counter += 1
-                other = (
-                    int.from_bytes(
-                        hashlib.sha256(param).digest()[:4],
-                        "big",
-                    )
-                    % space_cost
-                )
-                put(i, sha(counter, get(i), get(other)))
-                counter += 1
-
-    return get(space_cost - 1)
 
 
 class Request(TypedDict):
@@ -135,16 +79,6 @@ def jwt_decode(token: str, secret: bytes) -> dict:
     return claims
 
 
-@dataclass
-class Challenge:
-    id: str
-    random_data: str
-    difficulty: int
-    ip_hash: str
-    created_at: float
-    spent: bool = False
-
-
 class Store:
     def __init__(
         self,
@@ -153,7 +87,7 @@ class Store:
     ):
         self._ttl = challenge_ttl
         self._max_size = max_size
-        self._data: dict[str, Challenge] = {}
+        self._data: dict[str, ChallengeBase] = {}
         self._lock = Lock()
 
     def _cleanup(self):
@@ -172,13 +106,13 @@ class Store:
         for k in oldest:
             del self._data[k]
 
-    def set(self, challenge: Challenge):
+    def set(self, challenge: ChallengeBase):
         with self._lock:
             self._cleanup()
             self._evict_oldest()
             self._data[challenge.id] = challenge
 
-    def get(self, cid: str) -> Challenge | None:
+    def get(self, cid: str) -> ChallengeBase | None:
         with self._lock:
             self._cleanup()
             return self._data.get(cid)
@@ -240,9 +174,7 @@ class Policy:
     rules: list[Rule]
     challenge_threshold: int = CHALLENGE_THRESHOLD
     default_difficulty: int = DEFAULT_DIFFICULTY
-    space_cost: int = BALLOON_SPACE_COST
-    time_cost: int = BALLOON_TIME_COST
-    delta: int = BALLOON_DELTA
+    challenge_handler: ChallengeHandler = field(default_factory=SHA256Balloon)
     cookie_name: str = COOKIE_NAME
     verify_path: str = VERIFY_PATH
     challenge_ttl: int = CHALLENGE_TTL
@@ -330,7 +262,6 @@ class Engine:
             setattr(self.policy, key, val)
 
         self.store = Store(self.policy.challenge_ttl)
-        self._html = (Path(__file__).parent / "challenge.html").read_text()
 
     def _hmac(self, data: bytes) -> bytes:
         return hmac.new(self.secret, data, hashlib.sha256).digest()
@@ -356,13 +287,15 @@ class Engine:
         self,
         difficulty: int,
         request: Request,
-    ) -> Challenge:
-        challenge = Challenge(
+    ) -> ChallengeBase:
+        handler = self.policy.challenge_handler
+        challenge = ChallengeBase(
             id=secrets.token_urlsafe(24),
             random_data=secrets.token_hex(64),
-            difficulty=difficulty,
+            difficulty=handler.to_difficulty(difficulty),
             ip_hash=self._hash_ip(request["remote_addr"]),
             created_at=time.time(),
+            challenge_type=handler.challenge_type,
         )
         self.store.set(challenge)
         return challenge
@@ -377,6 +310,9 @@ class Engine:
         if not challenge or challenge.spent:
             return None
 
+        if challenge.challenge_type != self.policy.challenge_handler.challenge_type:
+            return None
+
         if not hmac.compare_digest(
             challenge.ip_hash,
             self._hash_ip(request["remote_addr"]),
@@ -388,15 +324,9 @@ class Engine:
         except ValueError:
             return None
 
-        result = _balloon(
-            challenge.random_data,
-            nonce_int,
-            self.policy.space_cost,
-            self.policy.time_cost,
-            self.policy.delta,
-        )
-
-        if _count_leading_zero_bits(result) < challenge.difficulty:
+        if not self.policy.challenge_handler.verify(
+            challenge.random_data, nonce_int, challenge.difficulty
+        ):
             return None
 
         challenge.spent = True
@@ -426,20 +356,12 @@ class Engine:
 
     def render_challenge(
         self,
-        challenge: Challenge,
+        challenge: ChallengeBase,
         redirect_to: str,
     ) -> str:
+        handler = self.policy.challenge_handler
         payload = json.dumps(
-            {
-                "id": challenge.id,
-                "data": challenge.random_data,
-                "difficulty": challenge.difficulty,
-                "spaceCost": self.policy.space_cost,
-                "timeCost": self.policy.time_cost,
-                "delta": self.policy.delta,
-                "verifyPath": self.policy.verify_path,
-                "redirect": redirect_to,
-            }
+            handler.render_payload(challenge, self.policy.verify_path, redirect_to)
         )
 
         branding = self._BRANDING if self.policy.branding else ""
@@ -450,10 +372,9 @@ class Engine:
             .replace(">", "\\u003e")
         )
 
-        return self._html.replace(
-            "{{CHALLENGE_DATA}}",
-            safe,
-        ).replace("{{BRANDING}}", branding)
+        return handler.template.replace("{{CHALLENGE_DATA}}", safe).replace(
+            "{{BRANDING}}", branding
+        )
 
     def process(
         self,

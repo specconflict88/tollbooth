@@ -3,15 +3,11 @@ from typing import Any
 
 import pytest
 
-from tollbooth.engine import (
-    COOKIE_NAME,
-    Engine,
-    Policy,
-    Request,
-    Rule,
-    _balloon,
-    _count_leading_zero_bits,
+from tollbooth.challenges.base import (
+    count_leading_zero_bits as _count_leading_zero_bits,
 )
+from tollbooth.challenges.sha256_balloon import _balloon
+from tollbooth.engine import COOKIE_NAME, Engine, Policy, Request, Rule
 from tollbooth.middleware import (
     VERIFY_PATH,
     TollboothASGI,
@@ -123,16 +119,19 @@ def solve_for_engine(
         "query": "",
         "form": {},
     }
+    from tollbooth.challenges import SHA256Balloon
+
     challenge = engine.issue_challenge(1, request)
-    policy = engine.policy
+    handler = engine.policy.challenge_handler
+    assert isinstance(handler, SHA256Balloon)
 
     for nonce in range(200_000):
         result = _balloon(
             challenge.random_data,
             nonce,
-            policy.space_cost,
-            policy.time_cost,
-            policy.delta,
+            handler.space_cost,
+            handler.time_cost,
+            handler.delta,
         )
         if _count_leading_zero_bits(result) >= 1:
             return challenge.id, str(nonce)

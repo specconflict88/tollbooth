@@ -1,16 +1,15 @@
 import json
 import re
+from typing import Any
 from urllib.parse import urlencode
 
 import pytest
 
-from tollbooth.engine import (
-    COOKIE_NAME,
-    Policy,
-    Rule,
-    _balloon,
-    _count_leading_zero_bits,
+from tollbooth.challenges.base import (
+    count_leading_zero_bits as _count_leading_zero_bits,
 )
+from tollbooth.challenges.sha256_balloon import _balloon
+from tollbooth.engine import COOKIE_NAME, Policy, Rule
 from tollbooth.integrations.base import TollboothBase, resolve_base
 
 SECRET = "test-secret-key-32-bytes-long!!!"
@@ -62,16 +61,19 @@ def deny_policy():
 
 
 def solve(engine, remote_addr="1.2.3.4"):
+    from tollbooth.challenges import SHA256Balloon
+
     request = make_request(remote_addr=remote_addr)
     challenge = engine.issue_challenge(1, request)
-    p = engine.policy
+    handler = engine.policy.challenge_handler
+    assert isinstance(handler, SHA256Balloon)
     for nonce in range(200_000):
         result = _balloon(
             challenge.random_data,
             nonce,
-            p.space_cost,
-            p.time_cost,
-            p.delta,
+            handler.space_cost,
+            handler.time_cost,
+            handler.delta,
         )
         if _count_leading_zero_bits(result) >= 1:
             return challenge.id, str(nonce)
@@ -836,3 +838,121 @@ class TestFalcon:
             },
         )
         assert "302" in result.status
+
+
+# --- Starlette ---
+
+try:
+    from tollbooth.integrations.starlette import TollboothMiddleware as StarletteMW
+
+    HAS_STARLETTE = True
+except ImportError:
+    HAS_STARLETTE = False
+
+
+async def dummy_asgi(scope, _receive, send):
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [[b"content-type", b"text/plain"]],
+        }
+    )
+    await send({"type": "http.response.body", "body": b"upstream"})
+
+
+def make_scope(method="GET", path="/", headers=None, client=("1.2.3.4", 0)):
+    if headers is None:
+        headers = [[b"user-agent", b"Mozilla/5.0"]]
+    return {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "query_string": b"",
+        "headers": headers,
+        "client": client,
+    }
+
+
+async def collect(mw, scope, body=b""):
+    body_sent = False
+    messages: list[dict[str, Any]] = []
+
+    async def receive():
+        nonlocal body_sent
+        if not body_sent:
+            body_sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        messages.append(msg)
+
+    await mw(scope, receive, send)
+
+    status = None
+    resp_headers: dict[str, str] = {}
+    resp_body = b""
+
+    for msg in messages:
+        if msg["type"] == "http.response.start":
+            status = msg["status"]
+            for pair in msg.get("headers", []):
+                k = pair[0].decode() if isinstance(pair[0], bytes) else pair[0]
+                v = pair[1].decode() if isinstance(pair[1], bytes) else pair[1]
+                resp_headers[k] = v
+        elif msg["type"] == "http.response.body":
+            resp_body += msg.get("body", b"")
+
+    return status, resp_headers, resp_body
+
+
+@pytest.mark.skipif(not HAS_STARLETTE, reason="starlette not installed")
+class TestStarlette:
+    def mw(self, **kwargs):
+        policy = kwargs.pop("policy", Policy(rules=[]))
+        return StarletteMW(dummy_asgi, secret=SECRET, policy=policy, **kwargs)
+
+    async def test_passes_normal(self):
+        status, _, body = await collect(self.mw(), make_scope())
+        assert status == 200
+        assert body == b"upstream"
+
+    async def test_challenges_bot(self):
+        mw = self.mw(policy=challenge_policy())
+        status, _, body = await collect(mw, make_scope())
+        assert status == 429
+        assert b"challenge" in body.lower()
+
+    async def test_non_http_passthrough(self):
+        called = False
+
+        async def ws(scope, receive, send):
+            nonlocal called
+            called = True
+
+        mw = StarletteMW(ws, secret=SECRET)
+        await mw({"type": "websocket"}, None, None)
+        assert called
+
+    async def test_verify_flow(self):
+        mw = self.mw(policy=challenge_policy())
+        _, _, body = await collect(mw, make_scope())
+        challenge = extract_challenge(body)
+        assert challenge is not None
+        nonce = solve_pow(challenge)
+        form_body = urlencode(
+            {"id": challenge["id"], "nonce": nonce, "redirect": "/ok"}
+        ).encode()
+        status, headers, _ = await collect(
+            mw,
+            make_scope(method="POST", path="/.tollbooth/verify"),
+            body=form_body,
+        )
+        assert status == 302
+        assert headers["Location"] == "/ok"
+
+    async def test_exclude(self):
+        mw = self.mw(policy=challenge_policy(), exclude=[r"^/health"])
+        status, _, _ = await collect(mw, make_scope(path="/health"))
+        assert status == 200

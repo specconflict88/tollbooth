@@ -83,7 +83,7 @@ class RedisEngine(Engine):
         cfg = {
             f.name: getattr(self.policy, f.name)
             for f in fields(Policy)
-            if f.name != "rules"
+            if f.name not in ("rules", "challenge_handler")
         }
         self._r.set(self._rkey("config"), json.dumps(cfg))
         self._r.set(

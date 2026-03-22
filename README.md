@@ -7,7 +7,7 @@ Proof-of-work bot challenge middleware for Python. Zero dependencies.
 </div>
 
 ```python
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from tollbooth.integrations.fastapi import TollboothMiddleware
 
 app = FastAPI()
@@ -16,109 +16,79 @@ app.add_middleware(TollboothMiddleware, secret="your-secret-key")
 
 Bots get a browser challenge page. Humans solve it once, get a cookie, browse freely.
 
-## Why tollbooth over [Anubis](https://github.com/TecharoHQ/anubis)?
-
-|                   | tollbooth                      | Anubis                                                                                                          |
-| ----------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| **Language**      | Python (drop-in middleware)    | Go (standalone reverse proxy)                                                                                   |
-| **Dependencies**  | 0                              | [31 direct, ~160 transitive](https://github.com/TecharoHQ/anubis/blob/main/go.mod#L3-L203)                      |
-| **Code size**     | ~800 lines                     | ~10,000 lines                                                                                                   |
-| **Integration**   | `app.add_middleware(...)`      | Separate process + reverse proxy                                                                                |
-| **PoW algorithm** | Balloon hashing (memory-hard)  | [Plain SHA-256](https://github.com/TecharoHQ/anubis/blob/main/lib/challenge/proofofwork/proofofwork.go#L35-L85) |
-| **Rules format**  | JSON                           | [YAML + CEL expressions](https://github.com/TecharoHQ/anubis/blob/main/lib/config/config.go#L58-L73)            |
-| **Frameworks**    | Flask, Django, FastAPI, Falcon | None (reverse proxy only)                                                                                       |
-
-### Security: memory-hard PoW
-
-Anubis uses [plain SHA-256 hashing](https://github.com/TecharoHQ/anubis/blob/main/lib/challenge/proofofwork/proofofwork.go#L35-L85) — fast on GPUs and ASICs. An attacker with a GPU farm can solve challenges orders of magnitude faster than a browser.
-
-Tollbooth uses **Balloon hashing** (Boneh, Corrigan-Gibbs, Schechter 2016) — a memory-hard function that requires `spaceCost * 32 bytes` per attempt. GPU parallelism is bottlenecked by memory bandwidth, not compute. This makes mass-solving economically impractical.
-
-### Integration: middleware vs reverse proxy
-
-Anubis runs as a [separate process with a reverse proxy](https://github.com/TecharoHQ/anubis/blob/main/cmd/anubis/main.go#L211-L265), adding network hops, deployment complexity, and a new failure domain.
-
-Tollbooth is a middleware — it lives in your process, shares your config, and adds zero infrastructure:
-
-```python
-# WSGI (Flask, Django)
-app = TollboothWSGI(app, secret="key")
-
-# ASGI (FastAPI, Starlette)
-app = TollboothASGI(app, secret="key")
-```
-
-### Rules: JSON vs YAML+CEL
-
-Anubis requires [YAML policies with optional CEL expressions](https://github.com/TecharoHQ/anubis/blob/main/data/botPolicies.yaml) and [a complex config struct](https://github.com/TecharoHQ/anubis/blob/main/lib/config/config.go#L58-L73) with GeoIP, ASN, Thoth subscriptions, and 30+ CLI flags.
-
-Tollbooth: one JSON file, four actions, regex matching.
-
-### Performance: in-process vs network hop
-
-Anubis [proxies every request through a separate Go process](https://github.com/TecharoHQ/anubis/blob/main/lib/anubis.go#L187-L296) — the full request pipeline includes reverse proxy setup, header rewriting, and upstream forwarding.
-
-Tollbooth evaluates rules in-process with zero serialization. Allowed requests add microseconds of overhead. Challenged requests are handled before your app even sees them.
-
 ## Install
 
 ```bash
 pip install tollbooth
-```
-
-With framework extras:
-
-```bash
-pip install tollbooth[flask]
-pip install tollbooth[django]
-pip install tollbooth[fastapi]
-pip install tollbooth[falcon]
+pip install tollbooth[flask]     # Flask
+pip install tollbooth[django]    # Django
+pip install tollbooth[fastapi]   # FastAPI
+pip install tollbooth[falcon]    # Falcon
+pip install tollbooth[starlette] # Starlette
+pip install tollbooth[redis]     # Redis backend
 ```
 
 ## How it works
 
 ```
-Browser                             Server
-  │                                   │
-  │  GET /page                        │
-  │──────────────────────────────────►│
-  │                                   │  rules evaluate request
-  │  429 + challenge page             │  → action: challenge
-  │◄──────────────────────────────────│
-  │                                   │
-  │  Web Workers solve PoW            │
-  │  Balloon(random_data + nonce)     │
-  │  until ≥ difficulty leading       │
-  │  zero bits in hash                │
-  │                                   │
-  │  POST /.tollbooth/verify          │
-  │  { id, nonce, redirect }          │
-  │──────────────────────────────────►│
-  │                                   │  server verifies PoW
-  │  302 + Set-Cookie (JWT)           │  → issues signed cookie
-  │◄──────────────────────────────────│
-  │                                   │
-  │  GET /page (with cookie)          │
-  │──────────────────────────────────►│
-  │  200 OK                           │  cookie valid → pass through
-  │◄──────────────────────────────────│
+  Browser                            Server
+     │                                  │
+     │  GET /protected                  │
+     │─────────────────────────────────►│ ◄── rule engine evaluates
+     │                                  │     User-Agent, path, IP…
+     │◄─────────────────────────────────│
+     │  429  ┌──────────────────────┐   │
+     │       │  Checking your       │   │
+     │       │  browser…            │   │
+     │       │  ████████░░  72 H/s  │   │
+     │       └──────────────────────┘   │
+     │                                  │
+     │  Web Workers compute             │
+     │  Balloon(random_data+nonce)      │
+     │  until hash has ≥N leading       │
+     │  zero bits                       │
+     │                                  │
+     │  POST /.tollbooth/verify         │
+     │  { id, nonce, redirect }         │
+     │─────────────────────────────────►│ ◄── server re-runs hash,
+     │                                  │     checks leading zeros
+     │◄─────────────────────────────────│
+     │  302  Set-Cookie: _tollbooth=JWT │
+     │                                  │
+     │  GET /protected  Cookie: …JWT    │
+     │─────────────────────────────────►│ ◄── JWT valid + IP matches
+     │  200 OK                          │     → pass through
+     │◄─────────────────────────────────│
 ```
 
-The challenge page uses `navigator.hardwareConcurrency` Web Workers to mine in parallel. The JWT cookie is HMAC-SHA256 signed, bound to the client's IP hash, and valid for 7 days.
+The cookie is HMAC-SHA256 signed, bound to the client IP hash, and valid for 7 days by default. Solved challenges are marked spent — nonces cannot be reused.
+
+### Rule evaluation
+
+```
+incoming request
+      │
+      ▼
+ ┌─────────────────────────────────────┐
+ │  rule 1: action=allow  path=/health │──── matches? ──► ALLOW (pass through)
+ ├─────────────────────────────────────┤
+ │  rule 2: action=deny   ua=sqlmap    │──── matches? ──► DENY  (403)
+ ├─────────────────────────────────────┤
+ │  rule 3: action=challenge ua=GPTBot │──── matches? ──► CHALLENGE
+ ├─────────────────────────────────────┤
+ │  rule 4: action=weigh  +3  no UA    │──── matches? ──► weight += 3
+ ├─────────────────────────────────────┤
+ │  rule 5: action=weigh  +2  no lang  │──── matches? ──► weight += 2
+ └─────────────────────────────────────┘
+      │
+      ▼
+ weight ≥ threshold? ──► CHALLENGE
+      │
+      ▼
+     ALLOW
+```
 
 ## Usage
-
-### Raw WSGI / ASGI
-
-```python
-from tollbooth import TollboothWSGI, TollboothASGI
-
-# WSGI
-app = TollboothWSGI(your_app, secret="your-secret-key")
-
-# ASGI
-app = TollboothASGI(your_app, secret="your-secret-key")
-```
 
 ### Flask
 
@@ -137,6 +107,11 @@ def index():
 @app.route("/health")
 def health():
     return "ok"
+
+@tb.protect(difficulty=14)
+@app.route("/api/data")
+def data():
+    return {"rows": [...]}
 ```
 
 ### Django
@@ -150,184 +125,356 @@ MIDDLEWARE = [
 ]
 ```
 
-Per-view exemption:
-
 ```python
-from tollbooth.integrations.django import tollbooth_exempt
+# views.py
+from tollbooth.integrations.django import tollbooth_exempt, tollbooth_protect
 
 @tollbooth_exempt
 def health(request):
     return HttpResponse("ok")
+
+@tollbooth_protect(difficulty=14)
+def api_data(request):
+    return JsonResponse({"rows": [...]})
 ```
 
 ### FastAPI
 
 ```python
-from fastapi import FastAPI
-from tollbooth.integrations.fastapi import TollboothMiddleware
+from fastapi import FastAPI, Depends
+from tollbooth.integrations.fastapi import TollboothMiddleware, TollboothDep
 
+# Protect all routes (JSON mode on by default)
 app = FastAPI()
 app.add_middleware(TollboothMiddleware, secret="your-secret-key")
 ```
 
-Or as a dependency for specific routes:
+Route-level protection — only challenged routes pay the PoW cost:
 
 ```python
-from tollbooth.integrations.fastapi import TollboothDep
-
 protect = TollboothDep("your-secret-key")
+
+@app.get("/public")
+def public():
+    return {"open": True}
 
 @app.get("/protected", dependencies=[Depends(protect)])
 def protected():
-    return {"ok": True}
+    return {"secret": True}
 ```
 
-## Starlette
+### Starlette
 
 ```python
 from starlette.applications import Starlette
-from tollbooth import TollboothASGI
+from tollbooth.integrations.starlette import TollboothMiddleware
 
-app = Starlette()
-app = TollboothASGI(app, secret="your-secret-key")
+app = Starlette(routes=[...])
+app = TollboothMiddleware(app, secret="your-secret-key")
 ```
 
 ### Falcon
 
 ```python
 import falcon
-from tollbooth.integrations.falcon import TollboothMiddleware
+from tollbooth.integrations.falcon import TollboothMiddleware, tollbooth_hook
 
-app = falcon.App(middleware=[
-    TollboothMiddleware(secret="your-secret-key"),
-])
+app = falcon.App(middleware=[TollboothMiddleware(secret="your-secret-key")])
 ```
+
+Per-resource with a hook:
+
+```python
+from tollbooth.integrations.falcon import tollbooth_hook
+
+hook = tollbooth_hook("your-secret-key", difficulty=14)
+
+class SensitiveResource:
+    @falcon.before(hook)
+    def on_get(self, req, resp):
+        resp.media = {"rows": [...]}
+```
+
+### Raw WSGI / ASGI
+
+```python
+from tollbooth import TollboothWSGI, TollboothASGI
+
+app = TollboothWSGI(wsgi_app, secret="your-secret-key")  # Flask, Django, …
+app = TollboothASGI(asgi_app, secret="your-secret-key")  # FastAPI, Starlette, …
+```
+
+## Challenge types
+
+Difficulty is always expressed in **SHA256-Balloon units** — each challenge type applies its own offset so that equal difficulty numbers represent equal expected work.
+
+```
+difficulty=10 (policy setting)
+      │
+      ├── SHA256Balloon  offset +0  →  effective 10   ~1 024 hashes × 32 KB/hash
+      └── SHA256         offset +6  →  effective 16   ~65 536 hashes  (no memory cost)
+```
+
+| Type             | Class           | Offset | Memory per attempt                  | GPU-resistant |
+| ---------------- | --------------- | ------ | ----------------------------------- | ------------- |
+| `sha256-balloon` | `SHA256Balloon` | +0     | `space_cost × 32 B` (default 32 KB) | ✓             |
+| `sha256`         | `SHA256`        | +6     | none                                | ✗             |
+
+**Balloon hashing** fills a buffer of `space_cost` × 32-byte blocks, then mixes them with random lookups. Each attempt requires the full buffer in memory — GPU cores are bottlenecked by memory bandwidth, not compute throughput.
+
+```python
+from tollbooth import SHA256Balloon, SHA256, TollboothWSGI
+
+# Default — memory-hard, GPU-resistant
+app = TollboothWSGI(app, secret="key")
+
+# Heavier: 64 KB per attempt instead of 32 KB
+app = TollboothWSGI(app, secret="key",
+    challenge_handler=SHA256Balloon(space_cost=2048))
+
+# Lightweight — useful when clients are known-good but you still want a gate
+app = TollboothWSGI(app, secret="key", challenge_handler=SHA256())
+```
+
+### Difficulty reference
+
+Expected hashes to solve (2^difficulty). Each +1 doubles solve time.
+
+```
+ difficulty │  SHA256-Balloon  │     SHA256
+────────────┼──────────────────┼────────────────
+     8      │       256        │      16 384  (+6)
+    10      │      1 024       │      65 536
+    12      │      4 096       │     262 144
+    14      │     16 384       │   1 048 576
+    16      │     65 536       │   4 194 304
+    20      │  1 048 576       │  67 108 864
+```
+
+Typical browser solve time at difficulty 10 (SHA256-Balloon, 4 cores): **~0.5 s**
 
 ## Configuration
 
-Pass options as keyword arguments to any integration:
-
 ```python
+from tollbooth import SHA256Balloon, TollboothWSGI
+
 TollboothWSGI(
     app,
-    secret="your-secret-key",
-    default_difficulty=12,    # leading zero bits (default: 10)
-    space_cost=2048,          # balloon memory blocks (default: 1024)
-    time_cost=1,              # mixing rounds (default: 1)
-    delta=3,                  # random lookups per step (default: 3)
-    cookie_ttl=86400,         # cookie lifetime seconds (default: 604800)
-    challenge_ttl=1800,       # challenge validity seconds (default: 1800)
-    challenge_threshold=5,    # weight sum to trigger challenge (default: 5)
-    branding=True,            # show "Protected by tollbooth" (default: True)
+    secret="your-secret-key",         # required — signs cookies + HMAC
+    default_difficulty=10,             # baseline PoW difficulty (default: 10)
+    challenge_handler=SHA256Balloon(   # algorithm + its parameters
+        space_cost=1024,               #   memory blocks per attempt (default: 1024)
+        time_cost=1,                   #   mixing rounds (default: 1)
+        delta=3,                       #   random lookups per step (default: 3)
+    ),
+    challenge_threshold=5,             # weight sum to trigger challenge (default: 5)
+    cookie_ttl=604800,                 # cookie lifetime in seconds (default: 7 days)
+    challenge_ttl=1800,                # challenge expiry in seconds (default: 30 min)
+    branding=True,                     # "Protected by tollbooth" footer (default: True)
+    exclude=[r"^/static/", r"^/_/"],   # paths that bypass all checks
 )
 ```
 
-Each +1 difficulty doubles expected solve time. Higher `space_cost` increases memory per attempt (`space_cost * 32` bytes).
-
 ## Rules
 
-Rules are evaluated top-to-bottom. First matching terminal action (`allow`, `deny`, `challenge`) wins. `weigh` rules accumulate weight — if the sum reaches `challenge_threshold`, a challenge is issued.
+Rules are evaluated top-to-bottom. The first matching terminal action (`allow`, `deny`, `challenge`) wins. `weigh` rules accumulate a score — when it reaches `challenge_threshold`, a challenge is issued.
 
-### Format
+### Rule fields
 
 ```json
-[
-    {
-        "name": "rule-name",
-        "action": "allow | deny | challenge | weigh",
-        "user_agent": "regex",
-        "path": "regex",
-        "headers": { "Header-Name": "regex" },
-        "remote_addresses": ["192.168.0.0/24"],
-        "difficulty": 12,
-        "weight": 3,
-        "blocklist": false
-    }
-]
+{
+    "name": "rule-name",
+    "action": "allow | deny | challenge | weigh",
+    "user_agent": "regex",
+    "path": "regex",
+    "headers": { "Header-Name": "value-regex" },
+    "remote_addresses": ["10.0.0.0/8", "2001:db8::/32"],
+    "difficulty": 14,
+    "weight": 3,
+    "blocklist": false
+}
 ```
 
-All match fields are optional. A rule with no match fields matches everything. All fields use regex except `remote_addresses` (CIDR notation) and `blocklist` (boolean).
+All match fields are optional and ANDed together. A rule with no match fields matches everything. `remote_addresses` uses CIDR notation; all other string fields use regex.
 
 ### Actions
 
-| Action      | Behavior                                   |
-| ----------- | ------------------------------------------ |
-| `allow`     | Pass through immediately                   |
-| `deny`      | Return 403                                 |
-| `challenge` | Serve PoW challenge page                   |
-| `weigh`     | Add `weight` to score, continue evaluating |
+| Action      | Effect                                         |
+| ----------- | ---------------------------------------------- |
+| `allow`     | Pass through immediately, skip remaining rules |
+| `deny`      | Return 403 Forbidden                           |
+| `challenge` | Issue PoW challenge at given `difficulty`      |
+| `weigh`     | Add `weight` to running score, keep going      |
 
 ### Default rules
 
-Tollbooth ships with [rules.json](rules.json) covering:
+Tollbooth ships with [rules.json](tollbooth/rules.json) covering common traffic patterns out of the box:
 
-**Deny** — Cloudflare Workers abuse, known bad bots, vulnerability scanners, WordPress probes, dotfile probes, shell probes, path traversal attempts
+| Category      | Examples                                                                                 |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| **Deny**      | sqlmap, Acunetix, Nmap, `.env`/`.git` probes, shell probes, path traversal               |
+| **Allow**     | Googlebot, Bingbot, UptimeRobot, Pingdom, Slack/Discord previews, archive.org            |
+| **Challenge** | AI crawlers (GPT/Claude/CCBot, diff=14), headless browsers (diff=12), Scrapy (diff=12)   |
+| **Weigh**     | curl/wget (+3), missing Accept (+3), missing Accept-Language (+2), Connection:close (+2) |
 
-**Allow** — `.well-known/`, `favicon.ico`, `robots.txt`, health checks, search engines, feed readers, monitoring services, link previews, archive.org
+### Custom policy examples
 
-**Challenge** — IP blocklist, AI bots (difficulty 14), headless browsers (12), aggressive scrapers (12), empty user agents, generic browsers
-
-**Weigh** — curl/wget (+3), missing Accept header (+3), missing Accept-Language (+2), `Connection: close` (+2)
-
-### Custom rules
-
-Override by passing a `rules_file` into `TollboothWSGI` or constructing a `Policy` directly:
+Allow internal network, challenge everything else:
 
 ```python
 from tollbooth import Policy, Rule, TollboothWSGI
 
 policy = Policy(rules=[
-    Rule(name="internal", action="allow",
-         remote_addresses=["10.0.0.0/8"]),
-    Rule(name="api-bots", action="challenge",
-         path="^/api/", difficulty=14),
-    Rule(name="default", action="challenge"),
+    Rule(name="internal", action="allow", remote_addresses=["10.0.0.0/8"]),
+    Rule(name="health",   action="allow", path=r"^/health$"),
+    Rule(name="default",  action="challenge"),
 ])
-
 app = TollboothWSGI(your_app, secret="key", policy=policy)
 ```
 
-### Rule templates
+Tiered difficulty — harder challenge for scrapers, lighter for everyone else:
 
-Block AI scrapers:
-
-```json
-{
-    "name": "ai-bots",
-    "action": "deny",
-    "user_agent": "(?i:GPTBot|ChatGPT|Claude-Web|CCBot|Bytespider)"
-}
+```python
+policy = Policy(
+    default_difficulty=8,
+    rules=[
+        Rule(name="scrapers", action="challenge", difficulty=16,
+             user_agent=r"(?i:python-requests|scrapy|curl)"),
+        Rule(name="default",  action="challenge"),
+    ],
+)
 ```
 
-Protect API endpoints:
-
-```json
-{ "name": "api-protect", "action": "challenge", "path": "^/api/", "difficulty": 14 }
-```
-
-Allowlist internal IPs:
-
-```json
-{ "name": "internal", "action": "allow", "remote_addresses": ["10.0.0.0/8", "172.16.0.0/12"] }
-```
-
-Weight scoring for suspicious signals:
+Block AI bots entirely, challenge everything else:
 
 ```json
 [
-    { "name": "no-accept", "action": "weigh", "weight": 3, "headers": { "Accept": "^$" } },
-    { "name": "no-lang", "action": "weigh", "weight": 2, "headers": { "Accept-Language": "^$" } },
-    { "name": "curl", "action": "weigh", "weight": 3, "user_agent": "(?i:^curl/|^Wget/)" }
+    {
+        "name": "ai-deny",
+        "action": "deny",
+        "user_agent": "(?i:GPTBot|ChatGPT|Claude-Web|CCBot|Bytespider|Diffbot)"
+    },
+    { "name": "default", "action": "challenge" }
 ]
 ```
 
-With `challenge_threshold=5`, curl (weight 3) + missing Accept-Language (weight 2) = 5, triggers a challenge.
+Weight-based scoring — no single rule triggers a challenge, but combinations do:
+
+```json
+[
+    { "name": "curl", "action": "weigh", "weight": 3, "user_agent": "(?i:^curl/|^Wget/)" },
+    { "name": "no-ua", "action": "weigh", "weight": 3, "user_agent": "^$" },
+    { "name": "no-lang", "action": "weigh", "weight": 2, "headers": { "Accept-Language": "^$" } },
+    { "name": "no-accept", "action": "weigh", "weight": 2, "headers": { "Accept": "^$" } }
+]
+```
+
+With `challenge_threshold=5`: curl alone (3) passes, no-UA (3) passes, but curl + no-lang (5) triggers a challenge.
+
+Path-specific rules — protect `/admin` hard, leave everything else on defaults:
+
+```json
+[
+    {
+        "name": "admin-block",
+        "action": "deny",
+        "path": "^/admin",
+        "user_agent": "(?i:bot|spider|scraper)"
+    },
+    { "name": "admin-challenge", "action": "challenge", "path": "^/admin", "difficulty": 16 }
+]
+```
+
+## Integrations
+
+All framework integrations accept the same keyword arguments as `TollboothWSGI`/`TollboothASGI`.
+
+| Integration   | Import                             | Middleware class      | Per-route            | Exempt              |
+| ------------- | ---------------------------------- | --------------------- | -------------------- | ------------------- |
+| **Flask**     | `tollbooth.integrations.flask`     | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        |
+| **Django**    | `tollbooth.integrations.django`    | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` |
+| **FastAPI**   | `tollbooth.integrations.fastapi`   | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     |
+| **Falcon**    | `tollbooth.integrations.falcon`    | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     |
+| **Starlette** | `tollbooth.integrations.starlette` | `TollboothMiddleware` | —                    | `exclude=[...]`     |
+| **WSGI**      | `tollbooth`                        | `TollboothWSGI`       | —                    | —                   |
+| **ASGI**      | `tollbooth`                        | `TollboothASGI`       | —                    | —                   |
+
+### Reusing an engine across integrations
+
+```python
+from tollbooth import Engine, Policy, Rule
+from tollbooth.integrations.flask import Tollbooth
+
+engine = Engine(
+    secret="your-secret-key",
+    policy=Policy(rules=[Rule(name="all", action="challenge")]),
+)
+
+# Pass the same engine to multiple integrations
+tb_flask = Tollbooth(flask_app, engine=engine)
+tb_asgi  = TollboothASGI(asgi_app, engine=engine)
+```
+
+### JSON mode
+
+For API/SPA backends where browsers aren't involved, `json_mode=True` returns structured JSON instead of an HTML challenge page:
+
+```python
+# FastAPI uses json_mode=True by default
+app.add_middleware(TollboothMiddleware, secret="key")
+
+# Enable for all routes on any integration
+TollboothBase(secret="key", json_mode=True)
+
+# Enable only for /api/* routes
+TollboothBase(secret="key", json_mode=lambda req: req["path"].startswith("/api/"))
+```
+
+SHA256-Balloon challenge response:
+
+```json
+{
+    "challenge": {
+        "id": "Xk9mP2...",
+        "data": "a3f1...",
+        "difficulty": 10,
+        "spaceCost": 1024,
+        "timeCost": 1,
+        "delta": 3,
+        "verifyPath": "/.tollbooth/verify",
+        "redirect": "/api/data"
+    }
+}
+```
+
+SHA256 challenge response (no memory parameters):
+
+```json
+{
+    "challenge": {
+        "id": "Xk9mP2...",
+        "data": "a3f1...",
+        "difficulty": 16,
+        "verifyPath": "/.tollbooth/verify",
+        "redirect": "/api/data"
+    }
+}
+```
+
+Verify by POSTing the solved nonce:
+
+```
+POST /.tollbooth/verify
+Content-Type: application/x-www-form-urlencoded
+
+id=Xk9mP2...&nonce=38471&redirect=/api/data
+```
+
+Response on success: `302 Location: /api/data  Set-Cookie: _tollbooth=<JWT>`
 
 ## IP Blocklist
 
-Challenge known malicious IPs using [tn3w/IPBlocklist](https://github.com/tn3w/IPBlocklist). The blocklist supports single IPs, CIDR blocks, and IP ranges for both IPv4 and IPv6.
-
-Rules with `"blocklist": true` only match if the client IP is in the loaded blocklist. The default [rules.json](tollbooth/rules.json) includes an `ip-blocklist` rule (challenge, difficulty 8).
+Challenge or block known malicious IPs using [tn3w/IPBlocklist](https://github.com/tn3w/IPBlocklist). Supports single IPs, CIDR ranges, and IP ranges for IPv4 and IPv6.
 
 ### In-memory
 
@@ -335,53 +482,58 @@ Rules with `"blocklist": true` only match if the client IP is in the loaded bloc
 from tollbooth import Engine, IPBlocklist
 
 blocklist = IPBlocklist()
-blocklist.load()  # downloads from GitHub
-# or: blocklist.load("/path/to/blocklist.txt")
+blocklist.load()                        # downloads ~23 MB from GitHub
+blocklist.load("/path/to/list.txt")    # or load from file
 
 engine = Engine("your-secret-key", blocklist=blocklist)
+blocklist.start_updates(interval=86400) # optional daily refresh
 ```
 
-Uses sorted arrays with O(log n) binary search. The 23MB text file is parsed into compact integer ranges — fast lookups, no dependencies.
-
-```python
-blocklist.start_updates(interval=86400)  # daily refresh
-```
+Parsed into compact integer ranges with O(log n) binary search. No dependencies.
 
 ### Redis-backed
 
-For multi-process deployments, store the blocklist in Redis so each instance doesn't hold it in memory:
+For multi-process deployments — one download, shared across all workers:
 
 ```python
 import redis
 from tollbooth.redis import RedisEngine, RedisIPBlocklist
 
 client = redis.Redis()
-
 blocklist = RedisIPBlocklist(client)
-blocklist.load()  # parses + stores in Redis sorted sets
+blocklist.load()  # download once, store in Redis sorted sets
 
 engine = RedisEngine(client, secret="key", blocklist=blocklist)
+blocklist.start_updates(interval=86400)  # distributed lock — only one process downloads
 ```
 
-Lookups execute a server-side Lua script — one network roundtrip, O(log n) via `ZREVRANGEBYLEX`. IPv4 and IPv6 are stored in separate sorted sets with hex-encoded keys for correct lexicographic ordering.
+Lookups use a server-side Lua script: one roundtrip, O(log n) via `ZREVRANGEBYLEX`.
 
-`start_updates` uses a Redis `SET NX EX` lock so only one instance across all processes performs the download — others skip until the lock expires:
-
-```python
-blocklist.start_updates(interval=86400)  # safe to call on every instance
-```
-
-### Custom blocklist rule
+### Blocklist rules
 
 ```json
-{ "name": "block-bad-ips", "action": "deny", "blocklist": true }
+{ "name": "known-bad", "action": "challenge", "blocklist": true }
+{ "name": "known-bad", "action": "deny",      "blocklist": true }
 ```
 
-Without a loaded blocklist, `blocklist` rules are silently skipped.
+Rules with `"blocklist": true` are silently skipped when no blocklist is loaded.
 
 ## Redis
 
-Share challenges, secret, config, and rules across instances via Redis (or any compatible server like Dragonfly, KeyDB, Valkey).
+Share challenges, secret, config, and rules across workers via Redis (or Dragonfly, KeyDB, Valkey).
+
+```
+ worker 1        worker 2        worker 3
+    │               │               │
+    └───────────────┴───────────────┘
+                    │
+              ┌─────▼──────┐
+              │   Redis    │
+              │ challenges │
+              │   secret   │
+              │   config   │
+              └────────────┘
+```
 
 ```bash
 pip install tollbooth[redis]
@@ -393,93 +545,39 @@ from tollbooth.redis import RedisEngine
 
 client = redis.Redis(host="127.0.0.1", port=6379)
 
-# First instance — sets secret + config in Redis
+# First instance writes secret + config
 engine = RedisEngine(client, secret="your-secret-key")
 
-# Other instances — load secret + config from Redis
-engine2 = RedisEngine(client)
+# Additional instances read from Redis — no secret needed
+engine = RedisEngine(client)
 ```
 
-Use with any integration via `TollboothBase`:
+Use with any integration:
 
 ```python
-from tollbooth.integrations.flask import Tollbooth
+from tollbooth.integrations.fastapi import TollboothMiddleware
 from tollbooth.redis import RedisEngine
 
 engine = RedisEngine(client, secret="your-secret-key")
-tb = Tollbooth(app, engine=engine)
+app.add_middleware(TollboothMiddleware, engine=engine)
 ```
 
-Changes propagate automatically via pub/sub (`auto_sync=True` by default):
+Live config updates propagate to all workers via pub/sub:
 
 ```python
 engine.update_secret("new-secret")
-engine.update_policy(default_difficulty=14, space_cost=2048)
-engine.update_rules([Rule(name="block", action="deny", path="/admin")])
+engine.update_policy(default_difficulty=14)
+engine.update_rules([Rule(name="block", action="deny", path="^/admin")])
 
-# Manual sync (if auto_sync=False)
-engine2.sync()
+# Manual sync if auto_sync=False
+engine.sync()
 ```
 
-All challenges are stored in Redis with TTL — no in-memory state, no cleanup needed. Use `prefix` to namespace multiple tollbooth deployments on the same Redis instance:
+Namespace multiple deployments on one Redis instance:
 
 ```python
-RedisEngine(client, secret="key", prefix="myapp:tollbooth")
-```
-
-## Integrations
-
-All integrations share the same options via `TollboothBase`:
-
-```python
-from tollbooth.integrations.base import TollboothBase
-
-tb = TollboothBase(
-    secret="key",
-    exclude=[r"^/static/", r"^/health$"],  # regex skip list
-    json_mode=True,  # return JSON instead of HTML challenges
-)
-```
-
-| Integration | Middleware class      | Per-route            | Exempt decorator    |
-| ----------- | --------------------- | -------------------- | ------------------- |
-| **Flask**   | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        |
-| **Django**  | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` |
-| **FastAPI** | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     |
-| **Falcon**  | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     |
-| **WSGI**    | `TollboothWSGI`       | —                    | —                   |
-| **ASGI**    | `TollboothASGI`       | —                    | —                   |
-
-### JSON mode
-
-For API/SPA backends, `json_mode` controls whether challenges return JSON instead of HTML. It accepts a `bool` or a callable `(request) -> bool` for per-request control:
-
-```python
-# all routes return JSON
-TollboothBase(secret="key", json_mode=True)
-
-# only /api/* routes return JSON
-TollboothBase(
-    secret="key",
-    json_mode=lambda req: req["path"].startswith("/api/"),
-)
-```
-
-JSON challenge response:
-
-```json
-{
-    "challenge": {
-        "id": "abc123",
-        "data": "random_hex",
-        "difficulty": 10,
-        "space_cost": 1024,
-        "time_cost": 1,
-        "delta": 3,
-        "verify_path": "/.tollbooth/verify",
-        "redirect": "/api/data"
-    }
-}
+RedisEngine(client, secret="key", prefix="myapp")
+RedisEngine(client, secret="key", prefix="staging")
 ```
 
 ## Tests
@@ -489,23 +587,20 @@ pip install tollbooth[test]
 pytest tests/
 ```
 
-Framework integration tests and Redis tests are skipped automatically if the required packages or services are not available.
-
-To run all tests:
+Framework and Redis tests skip automatically if packages/services are unavailable.
 
 ```bash
-pip install tollbooth[test,flask,django,fastapi,falcon,redis]
+pip install tollbooth[test,flask,django,fastapi,falcon,starlette,redis]
 pytest tests/ -v
 ```
 
-Redis tests (`tests/test_redis.py`) require a running Redis-compatible server at `127.0.0.1:6379`. If unavailable, they are skipped with a clear message.
+Redis tests require a server at `127.0.0.1:6379`.
 
 ## Formatting
 
 ```bash
 pip install black isort
-isort .
-black .
+isort . && black .
 npx prtfm
 ```
 

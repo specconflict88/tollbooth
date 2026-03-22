@@ -119,21 +119,9 @@ class TollboothBase:
         path = request["path"]
 
         if use_json:
-            p = self.engine.policy
-            body = json.dumps(
-                {
-                    "challenge": {
-                        "id": challenge.id,
-                        "data": challenge.random_data,
-                        "difficulty": challenge.difficulty,
-                        "space_cost": p.space_cost,
-                        "time_cost": p.time_cost,
-                        "delta": p.delta,
-                        "verify_path": self.verify_path,
-                        "redirect": path,
-                    }
-                }
-            )
+            handler = self.engine.policy.challenge_handler
+            payload = handler.render_payload(challenge, self.verify_path, path)
+            body = json.dumps({"challenge": payload})
             return Response(429, dict(_JSON_CT), body)
 
         body = self.engine.render_challenge(

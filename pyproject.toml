@@ -1,6 +1,6 @@
 [project]
 name = "tollbooth"
-version = "0.1.7"
+version = "0.1.8"
 description = "Proof-of-work bot challenge middleware for Python. Zero dependencies."
 readme = "README.md"
 license = { text = "MIT" }
@@ -35,6 +35,7 @@ django = ["django>=4.0"]
 flask = ["flask>=2.0"]
 fastapi = ["fastapi>=0.100"]
 falcon = ["falcon>=3.0"]
+starlette = ["starlette>=0.27"]
 redis = ["redis>=5.0"]
 
 [build-system]
@@ -45,7 +46,8 @@ build-backend = "setuptools.build_meta"
 include = ["tollbooth*"]
 
 [tool.setuptools.package-data]
-tollbooth = ["rules.json", "challenge.html"]
+tollbooth = ["rules.json"]
+"tollbooth.challenges" = ["templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

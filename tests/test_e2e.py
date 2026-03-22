@@ -5,13 +5,11 @@ from typing import Any
 
 import pytest
 
-from tollbooth.engine import (
-    COOKIE_NAME,
-    Policy,
-    Rule,
-    _balloon,
-    _count_leading_zero_bits,
+from tollbooth.challenges.base import (
+    count_leading_zero_bits as _count_leading_zero_bits,
 )
+from tollbooth.challenges.sha256_balloon import _balloon
+from tollbooth.engine import COOKIE_NAME, Policy, Rule
 from tollbooth.middleware import VERIFY_PATH, TollboothASGI, TollboothWSGI
 
 SECRET = "e2e-test-secret-key-32-bytes!!!"
