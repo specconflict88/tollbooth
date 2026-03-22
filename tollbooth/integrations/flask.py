@@ -37,7 +37,9 @@ class Tollbooth:
     def __init__(self, app=None, **kwargs):
         self._kwargs = kwargs
         self._tb: TollboothBase | None = (
-            TollboothBase(**kwargs) if "secret" in kwargs else None
+            TollboothBase(**kwargs)
+            if "secret" in kwargs or "engine" in kwargs
+            else None
         )
         if app:
             self.init_app(app)

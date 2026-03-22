@@ -3,10 +3,8 @@ import json
 from starlette.requests import Request
 
 from .base import resolve_base
-from .starlette import (
-    TollboothMiddleware as _StarletteMiddleware,
-    _parse_scope,
-)
+from .starlette import TollboothMiddleware as _StarletteMiddleware
+from .starlette import _parse_scope
 
 
 class TollboothMiddleware(_StarletteMiddleware):

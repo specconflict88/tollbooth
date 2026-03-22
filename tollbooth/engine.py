@@ -158,10 +158,7 @@ class Store:
 
     def _cleanup(self):
         cutoff = time.time() - self._ttl
-        for k in [
-            k for k, v in self._data.items()
-            if v.created_at < cutoff
-        ]:
+        for k in [k for k, v in self._data.items() if v.created_at < cutoff]:
             del self._data[k]
 
     def _evict_oldest(self):

@@ -323,6 +323,54 @@ Weight scoring for suspicious signals:
 
 With `challenge_threshold=5`, curl (weight 3) + missing Accept-Language (weight 2) = 5, triggers a challenge.
 
+## Redis
+
+Share challenges, secret, config, and rules across instances via Redis (or any compatible server like Dragonfly, KeyDB, Valkey).
+
+```bash
+pip install tollbooth[redis]
+```
+
+```python
+import redis
+from tollbooth.redis import RedisEngine
+
+client = redis.Redis(host="127.0.0.1", port=6379)
+
+# First instance — sets secret + config in Redis
+engine = RedisEngine(client, secret="your-secret-key")
+
+# Other instances — load secret + config from Redis
+engine2 = RedisEngine(client)
+```
+
+Use with any integration via `TollboothBase`:
+
+```python
+from tollbooth.integrations.flask import Tollbooth
+from tollbooth.redis import RedisEngine
+
+engine = RedisEngine(client, secret="your-secret-key")
+tb = Tollbooth(app, engine=engine)
+```
+
+Changes propagate automatically via pub/sub (`auto_sync=True` by default):
+
+```python
+engine.update_secret("new-secret")
+engine.update_policy(default_difficulty=14, space_cost=2048)
+engine.update_rules([Rule(name="block", action="deny", path="/admin")])
+
+# Manual sync (if auto_sync=False)
+engine2.sync()
+```
+
+All challenges are stored in Redis with TTL — no in-memory state, no cleanup needed. Use `prefix` to namespace multiple tollbooth deployments on the same Redis instance:
+
+```python
+RedisEngine(client, secret="key", prefix="myapp:tollbooth")
+```
+
 ## Integrations
 
 All integrations share the same options via `TollboothBase`:
@@ -366,8 +414,22 @@ For API/SPA backends, enable `json_mode=True`. Challenges return JSON instead of
 }
 ```
 
-Solve with the [sha256-balloon](../sha256-balloon/) client library and POST the nonce to the verify endpoint.
+## Test
+
+```bash
+pip install django flask fastapi starlette falcon redis pytest
+pytest tests/
+```
+
+## Formatting
+
+```bash
+pip install black isort
+isort .
+black .
+npx prtfm
+```
 
 ## License
 
-[MIT](../LICENSE)
+[MIT](LICENSE)

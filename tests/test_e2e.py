@@ -12,11 +12,7 @@ from tollbooth.engine import (
     _balloon,
     _count_leading_zero_bits,
 )
-from tollbooth.middleware import (
-    VERIFY_PATH,
-    TollboothASGI,
-    TollboothWSGI,
-)
+from tollbooth.middleware import VERIFY_PATH, TollboothASGI, TollboothWSGI
 
 SECRET = "e2e-test-secret-key-32-bytes!!!"
 

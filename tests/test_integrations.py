@@ -309,9 +309,7 @@ class TestBase:
         assert resolve_base(tb, {}) is tb
 
 
-from tollbooth.integrations.starlette import (
-    TollboothMiddleware as StarletteMW,
-)
+from tollbooth.integrations.starlette import TollboothMiddleware as StarletteMW
 
 
 async def dummy_asgi(scope, _receive, send):
@@ -477,10 +475,7 @@ class TestStarlette:
 
 import flask
 
-from tollbooth.integrations.flask import (
-    Tollbooth,
-    tollbooth_protect,
-)
+from tollbooth.integrations.flask import Tollbooth, tollbooth_protect
 
 
 class TestFlask:
@@ -613,10 +608,8 @@ class TestFlask:
             assert c.get("/guarded").status_code == 429
 
 
-from tollbooth.integrations.fastapi import (
-    TollboothMiddleware as FastAPIMW,
-    TollboothDep,
-)
+from tollbooth.integrations.fastapi import TollboothDep
+from tollbooth.integrations.fastapi import TollboothMiddleware as FastAPIMW
 
 
 class TestFastAPI:
@@ -736,13 +729,13 @@ from django.http import HttpResponse as DjangoResponse
 from django.test import RequestFactory
 from django.urls import path
 
+from tollbooth.integrations.django import TollboothMiddleware as DjangoMW
 from tollbooth.integrations.django import (
-    TollboothMiddleware as DjangoMW,
     make_middleware,
     make_verify_view,
     tollbooth_exempt,
-    tollbooth_protect as django_protect,
 )
+from tollbooth.integrations.django import tollbooth_protect as django_protect
 
 
 def _index_view(request):
@@ -850,11 +843,8 @@ class TestDjango:
 import falcon
 import falcon.testing
 
-from tollbooth.integrations.falcon import (
-    TollboothMiddleware as FalconMW,
-    VerifyResource,
-    tollbooth_hook,
-)
+from tollbooth.integrations.falcon import TollboothMiddleware as FalconMW
+from tollbooth.integrations.falcon import VerifyResource, tollbooth_hook
 
 
 class _IndexResource:

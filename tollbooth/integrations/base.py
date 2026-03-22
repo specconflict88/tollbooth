@@ -2,7 +2,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from ..engine import Engine, _CHALLENGE_HEADERS
+from ..engine import _CHALLENGE_HEADERS, Engine
 
 _JSON_CT = {
     "Content-Type": "application/json",
@@ -29,16 +29,22 @@ def resolve_base(tb_or_secret, kwargs):
 class TollboothBase:
     def __init__(
         self,
-        secret,
+        secret=None,
         *,
+        engine: Engine | None = None,
         exclude: list[str] | None = None,
         json_mode: bool = False,
         **engine_kwargs,
     ):
-        self.engine = Engine(
-            secret=secret,
-            **engine_kwargs,
-        )
+        if engine:
+            self.engine = engine
+        elif secret:
+            self.engine = Engine(
+                secret=secret,
+                **engine_kwargs,
+            )
+        else:
+            raise ValueError("secret or engine required")
         self._excludes = [re.compile(p) for p in (exclude or [])]
         self.json_mode = json_mode
 

@@ -12,7 +12,7 @@ import sys
 from collections.abc import Iterable
 from typing import Any
 
-from tollbooth import TollboothWSGI, TollboothASGI, Policy, Rule
+from tollbooth import Policy, Rule, TollboothASGI, TollboothWSGI
 
 SECRET = "change-me-to-a-real-32-byte-key!"
 
