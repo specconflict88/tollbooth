@@ -16,6 +16,42 @@ app.add_middleware(TollboothMiddleware, secret="your-secret-key")
 
 Bots get a browser challenge page. Humans solve it once, get a cookie, browse freely.
 
+## Screenshots
+
+<img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/Verifying.webp" alt="Tollbooth challenge page" width="400">
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [How it works](#how-it-works)
+- [Usage](#usage)
+  - [Flask](#flask)
+  - [Django](#django)
+  - [FastAPI](#fastapi)
+  - [Starlette](#starlette)
+  - [Falcon](#falcon)
+  - [Raw WSGI / ASGI](#raw-wsgi--asgi)
+- [Challenge types](#challenge-types)
+  - [Difficulty reference](#difficulty-reference)
+- [Configuration](#configuration)
+- [Rules](#rules)
+  - [Rule fields](#rule-fields)
+  - [Actions](#actions)
+  - [Default rules](#default-rules)
+  - [Custom policy examples](#custom-policy-examples)
+- [Integrations](#integrations)
+  - [Reusing an engine across integrations](#reusing-an-engine-across-integrations)
+  - [JSON mode](#json-mode)
+- [IP Blocklist](#ip-blocklist)
+  - [In-memory](#in-memory)
+  - [Redis-backed](#redis-backed)
+  - [Blocklist rules](#blocklist-rules)
+- [Redis](#redis)
+- [Tests](#tests)
+- [Managing screenshots](#managing-screenshots)
+- [License](#license)
+
 ## Install
 
 ```bash
@@ -601,6 +637,28 @@ Redis tests require a server at `127.0.0.1:6379`.
 pip install black isort
 isort . && black .
 npx prtfm
+```
+
+## Managing screenshots
+
+Screenshots live on the orphan `screenshots` branch to keep binary assets out of the main history.
+
+**Add or update a screenshot:**
+
+```bash
+git checkout screenshots
+# add/replace image files
+cp ~/new-screenshot.webp .
+git add new-screenshot.webp
+git commit -m "add new-screenshot.webp"
+git push origin screenshots
+git checkout main
+```
+
+**Reference in README:**
+
+```markdown
+<img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/filename.webp" alt="description" width="400">
 ```
 
 ## License
