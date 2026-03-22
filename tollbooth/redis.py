@@ -1,9 +1,14 @@
+import ipaddress
 import json
+import logging
 import threading
 import time
 from dataclasses import asdict, fields
 
+from .blocklist import BLOCKLIST_URL, _load_text, parse_blocklist
 from .engine import CHALLENGE_TTL, Challenge, Engine, Policy, Rule
+
+log = logging.getLogger("tollbooth.redis")
 
 
 class RedisStore:
@@ -142,3 +147,86 @@ class RedisEngine(Engine):
         )
         thread.start()
         self._listener = thread
+
+
+_LUA_IP_CHECK = """
+local ip = ARGV[1]
+local r = redis.call(
+    'ZREVRANGEBYLEX', KEYS[1],
+    '[' .. ip, '-', 'LIMIT', 0, 1
+)
+if #r == 0 then return 0 end
+local e = redis.call('HGET', KEYS[2], r[1])
+if e and ip <= e then return 1 end
+return 0
+"""
+
+
+class RedisIPBlocklist:
+    def __init__(self, client, prefix="tollbooth"):
+        self._r = client
+        self._prefix = prefix
+        self._check = client.register_script(_LUA_IP_CHECK)
+
+    def _keys(self, version):
+        v = "v4" if version == 4 else "v6"
+        return (
+            f"{self._prefix}:bl:{v}:z",
+            f"{self._prefix}:bl:{v}:h",
+        )
+
+    def _hex(self, val, version):
+        width = 8 if version == 4 else 32
+        return f"{val:0{width}x}"
+
+    def load(self, source=BLOCKLIST_URL):
+        text = _load_text(source)
+        v4, v6 = parse_blocklist(text)
+
+        for version, ranges in [(4, v4), (6, v6)]:
+            zkey, hkey = self._keys(version)
+            self._r.delete(zkey, hkey)
+            pipe = self._r.pipeline(transaction=False)
+            for i, (start, end) in enumerate(ranges):
+                s = self._hex(start, version)
+                e = self._hex(end, version)
+                pipe.zadd(zkey, {s: 0})
+                pipe.hset(hkey, s, e)
+                if i % 5000 == 4999:
+                    pipe.execute()
+            pipe.execute()
+
+    def contains(self, ip):
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        zkey, hkey = self._keys(addr.version)
+        hex_ip = self._hex(int(addr), addr.version)
+        return bool(
+            self._check(keys=[zkey, hkey], args=[hex_ip]),
+        )
+
+    def start_updates(self, interval=86400, source=BLOCKLIST_URL):
+        lock_key = f"{self._prefix}:bl:lock"
+
+        def run():
+            while True:
+                threading.Event().wait(interval)
+                if not self._r.set(lock_key, "1", nx=True, ex=interval):
+                    continue
+                try:
+                    self.load(source)
+                    log.info("Blocklist updated: %d entries", len(self))
+                except Exception:
+                    self._r.delete(lock_key)
+                    log.warning("Blocklist update failed", exc_info=True)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread
+
+    def __len__(self):
+        v4z, _ = self._keys(4)
+        v6z, _ = self._keys(6)
+        return self._r.zcard(v4z) + self._r.zcard(v6z)

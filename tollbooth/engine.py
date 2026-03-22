@@ -197,6 +197,7 @@ class Rule:
     )
     difficulty: int = 0
     weight: int = 0
+    blocklist: bool = False
 
     def __post_init__(self):
         self.action = self.action.lower()
@@ -208,7 +209,12 @@ class Rule:
             ipaddress.ip_network(a, strict=False) for a in self.remote_addresses
         ]
 
-    def matches(self, request: Request) -> bool:
+    def matches(self, request: Request, blocklist=None) -> bool:
+        if self.blocklist and (
+            not blocklist or not blocklist.contains(request["remote_addr"])
+        ):
+            return False
+
         if self._ua_re and not self._ua_re.search(request["user_agent"]):
             return False
 
@@ -249,11 +255,12 @@ class Policy:
     def evaluate(
         self,
         request: Request,
+        blocklist=None,
     ) -> tuple[str, int]:
         weight = 0
 
         for rule in self.rules:
-            if not rule.matches(request):
+            if not rule.matches(request, blocklist):
                 continue
             if rule.action in ("allow", "deny"):
                 return rule.action, 0
@@ -305,6 +312,7 @@ class Engine:
     def __init__(self, secret, policy=None, **kwargs):
         config_file = kwargs.pop("config_file", None)
         rules_file = kwargs.pop("rules_file", None)
+        self.blocklist = kwargs.pop("blocklist", None)
 
         self.secret = secret.encode() if isinstance(secret, str) else secret
         self.policy = policy or load_policy(config_file, rules_file)
@@ -448,7 +456,10 @@ class Engine:
         if cookie and self.check_cookie(cookie, request):
             return "pass", 0, {}, ""
 
-        action, difficulty = self.policy.evaluate(request)
+        action, difficulty = self.policy.evaluate(
+            request,
+            self.blocklist,
+        )
 
         if action == "allow":
             return "pass", 0, {}, ""

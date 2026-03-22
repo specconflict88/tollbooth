@@ -3,6 +3,8 @@ import re
 from typing import Any
 from urllib.parse import urlencode
 
+import pytest
+
 from tollbooth.engine import (
     COOKIE_NAME,
     Policy,
@@ -309,7 +311,14 @@ class TestBase:
         assert resolve_base(tb, {}) is tb
 
 
-from tollbooth.integrations.starlette import TollboothMiddleware as StarletteMW
+# --- Starlette ---
+
+try:
+    from tollbooth.integrations.starlette import TollboothMiddleware as StarletteMW
+
+    HAS_STARLETTE = True
+except ImportError:
+    HAS_STARLETTE = False
 
 
 async def dummy_asgi(scope, _receive, send):
@@ -393,6 +402,10 @@ async def collect(
     return status, resp_headers, resp_body
 
 
+@pytest.mark.skipif(
+    not HAS_STARLETTE,
+    reason="starlette not installed",
+)
 class TestStarlette:
     def mw(self, **kwargs):
         policy = kwargs.pop(
@@ -473,11 +486,22 @@ class TestStarlette:
         assert status == 200
 
 
-import flask
+# --- Flask ---
 
-from tollbooth.integrations.flask import Tollbooth, tollbooth_protect
+try:
+    import flask
+
+    from tollbooth.integrations.flask import Tollbooth, tollbooth_protect
+
+    HAS_FLASK = True
+except ImportError:
+    HAS_FLASK = False
 
 
+@pytest.mark.skipif(
+    not HAS_FLASK,
+    reason="flask not installed",
+)
 class TestFlask:
     def make_app(self, **tb_kwargs):
         tb_kwargs.setdefault(
@@ -608,10 +632,21 @@ class TestFlask:
             assert c.get("/guarded").status_code == 429
 
 
-from tollbooth.integrations.fastapi import TollboothDep
-from tollbooth.integrations.fastapi import TollboothMiddleware as FastAPIMW
+# --- FastAPI ---
+
+try:
+    from tollbooth.integrations.fastapi import TollboothDep
+    from tollbooth.integrations.fastapi import TollboothMiddleware as FastAPIMW
+
+    HAS_FASTAPI = True
+except ImportError:
+    HAS_FASTAPI = False
 
 
+@pytest.mark.skipif(
+    not HAS_FASTAPI,
+    reason="fastapi not installed",
+)
 class TestFastAPI:
     async def test_middleware_json_challenge(self):
         from fastapi import FastAPI
@@ -711,48 +746,56 @@ class TestFastAPI:
             assert resp.status_code == 200
 
 
-import django
-from django.conf import settings as django_settings
+# --- Django ---
 
-if not django_settings.configured:
-    django_settings.configure(
-        SECRET_KEY="django-test",
-        ROOT_URLCONF="tests.test_integrations",
-        TOLLBOOTH={
-            "secret": SECRET,
-            "policy": challenge_policy(),
-        },
+try:
+    import django
+    from django.conf import settings as django_settings
+
+    if not django_settings.configured:
+        django_settings.configure(
+            SECRET_KEY="django-test",
+            ROOT_URLCONF="tests.test_integrations",
+            TOLLBOOTH={
+                "secret": SECRET,
+                "policy": challenge_policy(),
+            },
+        )
+        django.setup()
+
+    from django.http import HttpResponse as DjangoResponse
+    from django.test import RequestFactory
+    from django.urls import path
+
+    from tollbooth.integrations.django import TollboothMiddleware as DjangoMW
+    from tollbooth.integrations.django import (
+        make_middleware,
+        make_verify_view,
+        tollbooth_exempt,
     )
-    django.setup()
+    from tollbooth.integrations.django import tollbooth_protect as django_protect
 
-from django.http import HttpResponse as DjangoResponse
-from django.test import RequestFactory
-from django.urls import path
+    def _index_view(request):
+        return DjangoResponse("OK")
 
-from tollbooth.integrations.django import TollboothMiddleware as DjangoMW
-from tollbooth.integrations.django import (
-    make_middleware,
-    make_verify_view,
-    tollbooth_exempt,
+    @tollbooth_exempt
+    def _exempt_view(request):
+        return DjangoResponse("exempt")
+
+    urlpatterns = [
+        path("", _index_view),
+        path("exempt/", _exempt_view),
+    ]
+
+    HAS_DJANGO = True
+except ImportError:
+    HAS_DJANGO = False
+
+
+@pytest.mark.skipif(
+    not HAS_DJANGO,
+    reason="django not installed",
 )
-from tollbooth.integrations.django import tollbooth_protect as django_protect
-
-
-def _index_view(request):
-    return DjangoResponse("OK")
-
-
-@tollbooth_exempt
-def _exempt_view(request):
-    return DjangoResponse("exempt")
-
-
-urlpatterns = [
-    path("", _index_view),
-    path("exempt/", _exempt_view),
-]
-
-
 class TestDjango:
     def setup_method(self):
         self.factory = RequestFactory()
@@ -840,18 +883,28 @@ class TestDjango:
         assert resp.status_code == 302
 
 
-import falcon
-import falcon.testing
+# --- Falcon ---
 
-from tollbooth.integrations.falcon import TollboothMiddleware as FalconMW
-from tollbooth.integrations.falcon import VerifyResource, tollbooth_hook
+try:
+    import falcon
+    import falcon.testing
+
+    from tollbooth.integrations.falcon import TollboothMiddleware as FalconMW
+    from tollbooth.integrations.falcon import VerifyResource, tollbooth_hook
+
+    class _IndexResource:
+        def on_get(self, req, resp):
+            resp.text = "OK"
+
+    HAS_FALCON = True
+except ImportError:
+    HAS_FALCON = False
 
 
-class _IndexResource:
-    def on_get(self, req, resp):
-        resp.text = "OK"
-
-
+@pytest.mark.skipif(
+    not HAS_FALCON,
+    reason="falcon not installed",
+)
 class TestFalcon:
     def make_client(self, **mw_kwargs):
         policy = mw_kwargs.pop(

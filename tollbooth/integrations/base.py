@@ -77,7 +77,10 @@ class TollboothBase:
         ):
             return None
 
-        action, difficulty = self.engine.policy.evaluate(request)
+        action, difficulty = self.engine.policy.evaluate(
+            request,
+            self.engine.blocklist,
+        )
 
         if action == "allow":
             return None

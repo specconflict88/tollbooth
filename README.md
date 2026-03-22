@@ -246,7 +246,7 @@ Rules are evaluated top-to-bottom. First matching terminal action (`allow`, `den
 ]
 ```
 
-All match fields are optional. A rule with no match fields matches everything. All fields use regex except `remote_addresses` (CIDR notation).
+All match fields are optional. A rule with no match fields matches everything. All fields use regex except `remote_addresses` (CIDR notation) and `blocklist` (boolean).
 
 ### Actions
 
@@ -265,7 +265,7 @@ Tollbooth ships with [rules.json](rules.json) covering:
 
 **Allow** — `.well-known/`, `favicon.ico`, `robots.txt`, health checks, search engines, feed readers, monitoring services, link previews, archive.org
 
-**Challenge** — AI bots (difficulty 10), headless browsers (6), aggressive scrapers (8), empty user agents (6), generic browsers
+**Challenge** — IP blocklist (difficulty 8), AI bots (difficulty 10), headless browsers (6), aggressive scrapers (8), empty user agents (6), generic browsers
 
 **Weigh** — curl/wget (+3), missing Accept header (+3), missing Accept-Language (+2), `Connection: close` (+2)
 
@@ -322,6 +322,62 @@ Weight scoring for suspicious signals:
 ```
 
 With `challenge_threshold=5`, curl (weight 3) + missing Accept-Language (weight 2) = 5, triggers a challenge.
+
+## IP Blocklist
+
+Challenge known malicious IPs using [tn3w/IPBlocklist](https://github.com/tn3w/IPBlocklist). The blocklist supports single IPs, CIDR blocks, and IP ranges for both IPv4 and IPv6.
+
+Rules with `"blocklist": true` only match if the client IP is in the loaded blocklist. The default [rules.json](tollbooth/rules.json) includes an `ip-blocklist` rule (challenge, difficulty 8).
+
+### In-memory
+
+```python
+from tollbooth import Engine, IPBlocklist
+
+blocklist = IPBlocklist()
+blocklist.load()  # downloads from GitHub
+# or: blocklist.load("/path/to/blocklist.txt")
+
+engine = Engine("your-secret-key", blocklist=blocklist)
+```
+
+Uses sorted arrays with O(log n) binary search. The 23MB text file is parsed into compact integer ranges — fast lookups, no dependencies.
+
+```python
+blocklist.start_updates(interval=86400)  # daily refresh
+```
+
+### Redis-backed
+
+For multi-process deployments, store the blocklist in Redis so each instance doesn't hold it in memory:
+
+```python
+import redis
+from tollbooth.redis import RedisEngine, RedisIPBlocklist
+
+client = redis.Redis()
+
+blocklist = RedisIPBlocklist(client)
+blocklist.load()  # parses + stores in Redis sorted sets
+
+engine = RedisEngine(client, secret="key", blocklist=blocklist)
+```
+
+Lookups execute a server-side Lua script — one network roundtrip, O(log n) via `ZREVRANGEBYLEX`. IPv4 and IPv6 are stored in separate sorted sets with hex-encoded keys for correct lexicographic ordering.
+
+`start_updates` uses a Redis `SET NX EX` lock so only one instance across all processes performs the download — others skip until the lock expires:
+
+```python
+blocklist.start_updates(interval=86400)  # safe to call on every instance
+```
+
+### Custom blocklist rule
+
+```json
+{ "name": "block-bad-ips", "action": "deny", "blocklist": true }
+```
+
+Without a loaded blocklist, `blocklist` rules are silently skipped.
 
 ## Redis
 
@@ -414,12 +470,23 @@ For API/SPA backends, enable `json_mode=True`. Challenges return JSON instead of
 }
 ```
 
-## Test
+## Tests
 
 ```bash
-pip install django flask fastapi starlette falcon redis pytest
+pip install tollbooth[test]
 pytest tests/
 ```
+
+Framework integration tests and Redis tests are skipped automatically if the required packages or services are not available.
+
+To run all tests:
+
+```bash
+pip install tollbooth[test,flask,django,fastapi,starlette,falcon,redis]
+pytest tests/ -v
+```
+
+Redis tests (`tests/test_redis.py`) require a running Redis-compatible server at `127.0.0.1:6379`. If unavailable, they are skipped with a clear message.
 
 ## Formatting
 

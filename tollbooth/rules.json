@@ -80,27 +80,31 @@
         "user_agent": "(?i:archive\\.org_bot|Wayback)"
     },
     {
+        "name": "ip-blocklist",
+        "action": "CHALLENGE",
+        "blocklist": true
+    },
+    {
         "name": "ai-bots",
         "action": "CHALLENGE",
-        "difficulty": 10,
+        "difficulty": 14,
         "user_agent": "(?i:GPTBot|ChatGPT|Claude-Web|Anthropic|CCBot|Google-Extended|Bytespider|PetalBot|Diffbot|Cohere-ai|PerplexityBot|YouBot)"
     },
     {
         "name": "headless-browsers",
         "action": "CHALLENGE",
-        "difficulty": 6,
+        "difficulty": 12,
         "user_agent": "(?i:HeadlessChrome|PhantomJS|Playwright|Puppeteer|Selenium)"
     },
     {
         "name": "aggressive-scrapers",
         "action": "CHALLENGE",
-        "difficulty": 8,
+        "difficulty": 12,
         "user_agent": "(?i:Scrapy|colly|HttpClient|python-requests|Go-http-client|Java/|libwww-perl|mechanize)"
     },
     {
         "name": "empty-ua",
         "action": "CHALLENGE",
-        "difficulty": 6,
         "user_agent": "^$"
     },
     {
@@ -110,25 +114,25 @@
     },
     {
         "name": "curl-wget",
-        "action": "weigh",
+        "action": "WEIGH",
         "weight": 3,
         "user_agent": "(?i:^curl/|^Wget/|^HTTPie/|^fetch/)"
     },
     {
         "name": "missing-accept",
-        "action": "weigh",
+        "action": "WEIGH",
         "weight": 3,
         "headers": { "Accept": "^$" }
     },
     {
         "name": "missing-accept-language",
-        "action": "weigh",
+        "action": "WEIGH",
         "weight": 2,
         "headers": { "Accept-Language": "^$" }
     },
     {
         "name": "connection-close",
-        "action": "weigh",
+        "action": "WEIGH",
         "weight": 2,
         "headers": { "Connection": "(?i:^close$)" }
     }
