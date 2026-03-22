@@ -238,6 +238,7 @@ _CSP = (
     "script-src 'unsafe-inline'; "
     "worker-src blob:; "
     "style-src 'unsafe-inline'; "
+    "img-src data:; "
     "connect-src 'self'"
 )
 
@@ -260,6 +261,9 @@ class Engine:
 
         for key, val in kwargs.items():
             setattr(self.policy, key, val)
+
+        if hasattr(self.policy.challenge_handler, "secret"):
+            self.policy.challenge_handler.secret = self.secret
 
         self.store = Store(self.policy.challenge_ttl)
 
@@ -289,10 +293,11 @@ class Engine:
         request: Request,
     ) -> ChallengeBase:
         handler = self.policy.challenge_handler
+        effective = handler.to_difficulty(difficulty)
         challenge = ChallengeBase(
             id=secrets.token_urlsafe(24),
-            random_data=secrets.token_hex(64),
-            difficulty=handler.to_difficulty(difficulty),
+            random_data=handler.generate_random_data(effective),
+            difficulty=effective,
             ip_hash=self._hash_ip(request["remote_addr"]),
             created_at=time.time(),
             challenge_type=handler.challenge_type,
@@ -320,12 +325,12 @@ class Engine:
             return None
 
         try:
-            nonce_int = int(nonce)
-        except ValueError:
+            nonce_val = self.policy.challenge_handler.nonce_from_form(str(nonce))
+        except (ValueError, TypeError):
             return None
 
         if not self.policy.challenge_handler.verify(
-            challenge.random_data, nonce_int, challenge.difficulty
+            challenge.random_data, nonce_val, challenge.difficulty
         ):
             return None
 
@@ -358,6 +363,7 @@ class Engine:
         self,
         challenge: ChallengeBase,
         redirect_to: str,
+        error: str = "",
     ) -> str:
         handler = self.policy.challenge_handler
         payload = json.dumps(
@@ -372,8 +378,10 @@ class Engine:
             .replace(">", "\\u003e")
         )
 
-        return handler.template.replace("{{CHALLENGE_DATA}}", safe).replace(
-            "{{BRANDING}}", branding
+        return (
+            handler.template.replace("{{CHALLENGE_DATA}}", safe)
+            .replace("{{BRANDING}}", branding)
+            .replace("{{ERROR}}", error)
         )
 
     def process(
@@ -424,11 +432,18 @@ class Engine:
         )
 
         if not token:
-            return (
-                403,
-                {"Content-Type": "text/plain"},
-                "Invalid",
-            )
+            if self.policy.challenge_handler.retry_on_failure:
+                redirect = _safe_redirect(form.get("redirect", "/"))
+                challenge = self.issue_challenge(
+                    self.policy.default_difficulty, request
+                )
+                body = self.render_challenge(
+                    challenge,
+                    redirect,
+                    error='<p class="error">Incorrect \u2014 try again.</p>',
+                )
+                return 429, _CHALLENGE_HEADERS, body
+            return 403, {"Content-Type": "text/plain"}, "Invalid"
 
         redirect = _safe_redirect(form.get("redirect", "/"))
 

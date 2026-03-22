@@ -71,9 +71,9 @@ class SHA256Balloon(ChallengeHandler):
     def template(self) -> str:
         return (Path(__file__).parent / "templates" / "sha256_balloon.html").read_text()
 
-    def verify(self, random_data: str, nonce: int, difficulty: int) -> bool:
+    def verify(self, random_data: str, nonce: int | str, difficulty: int) -> bool:
         result = _balloon(
-            random_data, nonce, self.space_cost, self.time_cost, self.delta
+            random_data, int(nonce), self.space_cost, self.time_cost, self.delta
         )
         return count_leading_zero_bits(result) >= difficulty
 

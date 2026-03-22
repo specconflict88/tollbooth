@@ -18,7 +18,11 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
 
 ## Screenshots
 
-<img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/Verifying.webp" alt="Tollbooth challenge page" width="400">
+**ImageCaptcha() Solution: `NWGT5V`**  
+<img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/image-captcha.webp" alt="Image CAPTCHA challenge page" width="400">
+
+**SHA256Balloon() `Default`**
+<img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/sha256.webp" alt="SHA256 challenge page" width="400">
 
 ## Contents
 
@@ -33,6 +37,10 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
     - [Falcon](#falcon)
     - [Raw WSGI / ASGI](#raw-wsgi--asgi)
 - [Challenge types](#challenge-types)
+    - [SHA256Balloon & SHA256](#sha256balloon--sha256)
+        - [Tuning](#tuning)
+    - [Image CAPTCHA](#image-captcha)
+        - [Setup](#setup)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
 - [Rules](#rules)
@@ -62,6 +70,7 @@ pip install tollbooth[fastapi]   # FastAPI
 pip install tollbooth[falcon]    # Falcon
 pip install tollbooth[starlette] # Starlette
 pip install tollbooth[redis]     # Redis backend
+pip install tollbooth[image]     # Image CAPTCHA (Pillow)
 ```
 
 ## How it works
@@ -241,35 +250,67 @@ app = TollboothASGI(asgi_app, secret="your-secret-key")  # FastAPI, Starlette, �
 
 ## Challenge types
 
-Difficulty is always expressed in **SHA256-Balloon units** — each challenge type applies its own offset so that equal difficulty numbers represent equal expected work.
+Difficulty is expressed in **SHA256-Balloon units** — each type applies its own offset so equal numbers mean equal expected work.
 
 ```
 difficulty=10 (policy setting)
       │
-      ├── SHA256Balloon  offset +0  →  effective 10   ~1 024 hashes × 32 KB/hash
-      └── SHA256         offset +6  →  effective 16   ~65 536 hashes  (no memory cost)
+      ├── SHA256Balloon  offset  +0  →  effective 10   ~1 024 hashes × 32 KB/hash
+      ├── SHA256         offset  +6  →  effective 16   ~65 536 hashes  (no memory cost)
+      └── ImageCaptcha   offset  -4  →  effective  6   6-character solution
 ```
 
-| Type             | Class           | Offset | Memory per attempt                  | GPU-resistant |
-| ---------------- | --------------- | ------ | ----------------------------------- | ------------- |
-| `sha256-balloon` | `SHA256Balloon` | +0     | `space_cost × 32 B` (default 32 KB) | ✓             |
-| `sha256`         | `SHA256`        | +6     | none                                | ✗             |
+| Type             | Class           | Offset | Solved by  | GPU-resistant |
+| ---------------- | --------------- | ------ | ---------- | ------------- |
+| `sha256-balloon` | `SHA256Balloon` | +0     | browser JS | ✓             |
+| `sha256`         | `SHA256`        | +6     | browser JS | ✗             |
+| `image-captcha`  | `ImageCaptcha`  | -4     | human      | ✓             |
 
-**Balloon hashing** fills a buffer of `space_cost` × 32-byte blocks, then mixes them with random lookups. Each attempt requires the full buffer in memory — GPU cores are bottlenecked by memory bandwidth, not compute throughput.
+### SHA256Balloon & SHA256
+
+Both are browser proof-of-work challenges solved automatically by JavaScript. `SHA256Balloon` is memory-hard (GPU-resistant); `SHA256` has no memory requirement but applies offset +6 to compensate. Use `SHA256Balloon` by default; use `SHA256` when client environment is constrained or solve speed matters more than GPU resistance.
+
+#### Tuning
 
 ```python
 from tollbooth import SHA256Balloon, SHA256, TollboothWSGI
 
-# Default — memory-hard, GPU-resistant
+# Default — memory-hard, GPU-resistant (32 KB per attempt)
 app = TollboothWSGI(app, secret="key")
 
-# Heavier: 64 KB per attempt instead of 32 KB
+# Heavier — 64 KB, harder to parallelize
 app = TollboothWSGI(app, secret="key",
     challenge_handler=SHA256Balloon(space_cost=2048))
 
-# Lightweight — useful when clients are known-good but you still want a gate
-app = TollboothWSGI(app, secret="key", challenge_handler=SHA256())
+# Plain SHA256 — faster, no memory cost, higher difficulty to compensate
+app = TollboothWSGI(app, secret="key",
+    challenge_handler=SHA256(), default_difficulty=14)
 ```
+
+### Image CAPTCHA
+
+Human-solved visual challenge. Renders distorted alphanumeric characters over a background using system fonts, with random per-character rotation, color, and position, plus line and noise overlays. Solution length scales with difficulty (offset -4): difficulty 10 → 6 characters. Solution is HMAC-encrypted in the challenge store — never stored in plaintext. Requires `Pillow`:
+
+```bash
+pip install tollbooth[image]
+```
+
+#### Setup
+
+```python
+from tollbooth import ImageCaptcha, TollboothWSGI
+
+app = TollboothWSGI(
+    app,
+    secret="your-secret-key",          # also used to sign CAPTCHA solution tokens
+    challenge_handler=ImageCaptcha(
+        backgrounds_path="/path/to/backgrounds", # optional directory of .jpg files
+        token_ttl=1800,                          # solution token lifetime in seconds
+    ),
+)
+```
+
+System fonts are detected automatically from common OS directories. Only fonts from known Latin families (DejaVu, Fira, Liberation, Ubuntu, etc.) are used. Background images are optional — falls back to a solid fill.
 
 ### Difficulty reference
 

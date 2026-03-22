@@ -145,16 +145,19 @@ class TollboothBase:
 
         if not token:
             if use_json:
-                return Response(
-                    403,
-                    dict(_JSON_CT),
-                    '{"error":"invalid"}',
+                return Response(403, dict(_JSON_CT), '{"error":"invalid"}')
+            if self.engine.policy.challenge_handler.retry_on_failure:
+                redirect = _safe_redirect(form.get("redirect", "/"))
+                challenge = self.engine.issue_challenge(
+                    self.engine.policy.default_difficulty, request
                 )
-            return Response(
-                403,
-                {"Content-Type": "text/plain"},
-                "Invalid",
-            )
+                body = self.engine.render_challenge(
+                    challenge,
+                    redirect,
+                    error='<p class="error">Incorrect \u2014 try again.</p>',
+                )
+                return Response(429, dict(_CHALLENGE_HEADERS), body)
+            return Response(403, {"Content-Type": "text/plain"}, "Invalid")
 
         if use_json:
             return Response(

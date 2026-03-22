@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <meta name="robots" content="noindex" />
+        <title>Verify</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                font-family: system-ui, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background: #0a0a0a;
+                color: #e0e0e0;
+            }
+            .box {
+                text-align: center;
+                max-width: 480px;
+                width: 100%;
+                padding: 2rem;
+            }
+            h2 {
+                margin-bottom: 1.2rem;
+                font-weight: 500;
+            }
+            img {
+                display: block;
+                margin: 0 auto 1.2rem;
+                border-radius: 6px;
+                max-width: 100%;
+            }
+            input[type='text'] {
+                width: 100%;
+                padding: 0.6rem 0.8rem;
+                font-size: 1.1rem;
+                letter-spacing: 0.15em;
+                text-transform: uppercase;
+                background: #1a1a1a;
+                color: #e0e0e0;
+                border: 1px solid #333;
+                border-radius: 4px;
+                outline: none;
+                margin-bottom: 0.8rem;
+            }
+            input[type='text']:focus {
+                border-color: #4f8;
+            }
+            button {
+                width: 100%;
+                padding: 0.6rem;
+                background: #4f8;
+                color: #0a0a0a;
+                border: none;
+                border-radius: 4px;
+                font-size: 1rem;
+                font-weight: 600;
+                cursor: pointer;
+            }
+            button:hover {
+                background: #3d7;
+            }
+            .branding {
+                margin-top: 1.5rem;
+                font-size: 0.7rem;
+                color: #555;
+            }
+            .branding a {
+                color: #777;
+                text-decoration: none;
+            }
+            .branding a:hover {
+                text-decoration: underline;
+            }
+            noscript {
+                color: #f55;
+                display: block;
+                margin-top: 1rem;
+            }
+            .error {
+                color: #f55;
+                font-size: 0.85rem;
+                margin-bottom: 0.8rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h2>Type the characters shown</h2>
+            <img id="captcha-img" alt="CAPTCHA" />
+            {{ERROR}}
+            <form id="captcha-form" method="POST">
+                <input type="hidden" name="id" />
+                <input type="hidden" name="redirect" />
+                <input
+                    type="text"
+                    name="nonce"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    autofocus
+                    placeholder="Enter characters above"
+                />
+                <button type="submit">Verify</button>
+            </form>
+            <noscript>JavaScript is required.</noscript>
+            {{BRANDING}}
+        </div>
+        <script>
+            (function () {
+                var C = JSON.parse('{{CHALLENGE_DATA}}');
+                document.getElementById('captcha-img').src = 'data:image/png;base64,' + C.image;
+                var f = document.getElementById('captcha-form');
+                f.action = C.verifyPath;
+                f.querySelector('[name=id]').value = C.id;
+                f.querySelector('[name=redirect]').value = C.redirect;
+            })();
+        </script>
+    </body>
+</html>

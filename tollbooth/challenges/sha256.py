@@ -24,7 +24,7 @@ class SHA256(ChallengeHandler):
     def template(self) -> str:
         return (Path(__file__).parent / "templates" / "sha256.html").read_text()
 
-    def verify(self, random_data: str, nonce: int, difficulty: int) -> bool:
+    def verify(self, random_data: str, nonce: int | str, difficulty: int) -> bool:
         result = hashlib.sha256((random_data + str(nonce)).encode()).digest()
         return count_leading_zero_bits(result) >= difficulty
 

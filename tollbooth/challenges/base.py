@@ -1,3 +1,4 @@
+import secrets
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -6,11 +7,13 @@ from enum import Enum
 class ChallengeType(str, Enum):
     SHA256_BALLOON = "sha256-balloon"
     SHA256 = "sha256"
+    IMAGE_CAPTCHA = "image-captcha"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.SHA256_BALLOON: 0,
     ChallengeType.SHA256: 8,
+    ChallengeType.IMAGE_CAPTCHA: -4,
 }
 
 
@@ -49,7 +52,7 @@ class ChallengeHandler(ABC):
     def template(self) -> str: ...
 
     @abstractmethod
-    def verify(self, random_data: str, nonce: int, difficulty: int) -> bool: ...
+    def verify(self, random_data: str, nonce: int | str, difficulty: int) -> bool: ...
 
     @abstractmethod
     def render_payload(
@@ -58,3 +61,13 @@ class ChallengeHandler(ABC):
         verify_path: str,
         redirect: str,
     ) -> dict: ...
+
+    def generate_random_data(self, difficulty: int = 0) -> str:
+        return secrets.token_hex(64)
+
+    def nonce_from_form(self, raw: str) -> int | str:
+        return int(raw)
+
+    @property
+    def retry_on_failure(self) -> bool:
+        return False
