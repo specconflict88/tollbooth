@@ -241,7 +241,8 @@ Rules are evaluated top-to-bottom. First matching terminal action (`allow`, `den
         "headers": { "Header-Name": "regex" },
         "remote_addresses": ["192.168.0.0/24"],
         "difficulty": 12,
-        "weight": 3
+        "weight": 3,
+        "blocklist": false
     }
 ]
 ```
@@ -265,13 +266,13 @@ Tollbooth ships with [rules.json](rules.json) covering:
 
 **Allow** — `.well-known/`, `favicon.ico`, `robots.txt`, health checks, search engines, feed readers, monitoring services, link previews, archive.org
 
-**Challenge** — IP blocklist (difficulty 8), AI bots (difficulty 10), headless browsers (6), aggressive scrapers (8), empty user agents (6), generic browsers
+**Challenge** — IP blocklist, AI bots (difficulty 14), headless browsers (12), aggressive scrapers (12), empty user agents, generic browsers
 
 **Weigh** — curl/wget (+3), missing Accept header (+3), missing Accept-Language (+2), `Connection: close` (+2)
 
 ### Custom rules
 
-Override by passing a `rules_file` path or constructing a `Policy` directly:
+Override by passing a `rules_file` into `TollboothWSGI` or constructing a `Policy` directly:
 
 ```python
 from tollbooth import Policy, Rule, TollboothWSGI
