@@ -291,7 +291,7 @@ app = TollboothWSGI(app, secret="key",
 
 ### Image CAPTCHA
 
-Human-solved visual challenge. Renders distorted alphanumeric characters over a background using system fonts, with random per-character rotation, color, and position, plus line and noise overlays. Solution length scales with difficulty (offset -4): difficulty 10 → 6 characters. Solution is HMAC-encrypted in the challenge store — never stored in plaintext. Requires `Pillow`:
+Human-solved visual challenge. Renders distorted alphanumeric characters over a background using system fonts, with random per-character rotation, color, and position, plus line and noise overlays. Solution length scales with difficulty (offset -4): difficulty 10 → 6 characters. Solution is HMAC-encrypted in the challenge store — never stored in plaintext. Works without JavaScript. Requires `Pillow`:
 
 ```bash
 pip install tollbooth[image]
@@ -349,6 +349,7 @@ TollboothWSGI(
     cookie_ttl=604800,                 # cookie lifetime in seconds (default: 7 days)
     challenge_ttl=1800,                # challenge expiry in seconds (default: 30 min)
     branding=True,                     # "Protected by tollbooth" footer (default: True)
+    accent_color="#44ff88",            # theme accent color (default: "#44ff88")
     exclude=[r"^/static/", r"^/_/"],   # paths that bypass all checks
 )
 ```

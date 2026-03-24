@@ -180,6 +180,7 @@ class Policy:
     challenge_ttl: int = CHALLENGE_TTL
     cookie_ttl: int = COOKIE_TTL
     branding: bool = True
+    accent_color: str = "#44ff88"
 
     def evaluate(
         self,
@@ -262,8 +263,9 @@ class Engine:
         for key, val in kwargs.items():
             setattr(self.policy, key, val)
 
-        if hasattr(self.policy.challenge_handler, "secret"):
-            self.policy.challenge_handler.secret = self.secret
+        handler = self.policy.challenge_handler
+        if hasattr(handler, "secret"):
+            setattr(handler, "secret", self.secret)
 
         self.store = Store(self.policy.challenge_ttl)
 
@@ -366,10 +368,10 @@ class Engine:
         error: str = "",
     ) -> str:
         handler = self.policy.challenge_handler
-        payload = json.dumps(
-            handler.render_payload(challenge, self.policy.verify_path, redirect_to)
+        payload_dict = handler.render_payload(
+            challenge, self.policy.verify_path, redirect_to
         )
-
+        payload = json.dumps(payload_dict)
         branding = self._BRANDING if self.policy.branding else ""
 
         safe = (
@@ -378,11 +380,15 @@ class Engine:
             .replace(">", "\\u003e")
         )
 
-        return (
+        html = (
             handler.template.replace("{{CHALLENGE_DATA}}", safe)
             .replace("{{BRANDING}}", branding)
             .replace("{{ERROR}}", error)
+            .replace("{{ACCENT_COLOR}}", self.policy.accent_color)
         )
+        for key, value in payload_dict.items():
+            html = html.replace(f"{{{{{key}}}}}", str(value))
+        return html
 
     def process(
         self,
