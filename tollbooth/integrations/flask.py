@@ -4,6 +4,16 @@ import flask
 
 from .base import TollboothBase, resolve_base
 
+_PREFIX = "TOLLBOOTH_"
+
+
+def _config_kwargs(app_config):
+    return {
+        key[len(_PREFIX) :].lower(): value
+        for key, value in app_config.items()
+        if key.startswith(_PREFIX)
+    }
+
 
 def _to_request():
     r = flask.request
@@ -51,7 +61,14 @@ class Tollbooth:
 
     def init_app(self, app):
         if not self._tb:
-            self._tb = TollboothBase(**self._kwargs)
+            merged = {**_config_kwargs(app.config), **self._kwargs}
+            if "secret" not in merged and "engine" not in merged:
+                merged.setdefault(
+                    "secret",
+                    app.config.get("SECRET_KEY"),
+                )
+            self._tb = TollboothBase(**merged)
+
         app.before_request(self._check)
         app.extensions["tollbooth"] = self
 

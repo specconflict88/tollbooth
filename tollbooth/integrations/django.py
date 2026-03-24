@@ -46,9 +46,13 @@ class TollboothMiddleware:
         self.get_response = get_response
         from django.conf import settings
 
-        self._tb = TollboothBase(
-            **getattr(settings, "TOLLBOOTH", {}),
-        )
+        kwargs = dict(getattr(settings, "TOLLBOOTH", {}))
+        if "secret" not in kwargs and "engine" not in kwargs:
+            kwargs.setdefault(
+                "secret",
+                getattr(settings, "SECRET_KEY", None),
+            )
+        self._tb = TollboothBase(**kwargs)
 
     def __call__(self, request):
         try:

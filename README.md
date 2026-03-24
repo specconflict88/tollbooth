@@ -7,11 +7,12 @@ A bot-challenge Python middleware issuing brief challenges, granting solvers sig
 </div>
 
 ```python
-from fastapi import FastAPI
-from tollbooth.integrations.fastapi import TollboothMiddleware
+from flask import Flask
+from tollbooth.integrations.flask import Tollbooth
 
-app = FastAPI()
-app.add_middleware(TollboothMiddleware, secret="your-secret-key")
+app = Flask(__name__)
+app.config["SECRET_KEY"] = "your-secret-key"
+tb = Tollbooth(app)  # uses SECRET_KEY automatically
 ```
 
 Bots get a browser challenge page. Humans solve it once, get a cookie, browse freely.
@@ -138,12 +139,15 @@ incoming request
 
 ### Flask
 
+Uses Flask's `SECRET_KEY` by default — no separate secret needed. All engine/policy values can be set via `app.config` with the `TOLLBOOTH_` prefix (`TOLLBOOTH_DEFAULT_DIFFICULTY`, `TOLLBOOTH_COOKIE_TTL`, etc.). Constructor kwargs override config values.
+
 ```python
 from flask import Flask
 from tollbooth.integrations.flask import Tollbooth
 
 app = Flask(__name__)
-tb = Tollbooth(app, secret="your-secret-key")
+app.config["SECRET_KEY"] = "your-secret-key"
+tb = Tollbooth(app)
 
 @app.route("/")
 def index():
@@ -153,18 +157,35 @@ def index():
 @app.route("/health")
 def health():
     return "ok"
+```
 
-@tb.protect(difficulty=14)
-@app.route("/api/data")
-def data():
-    return {"rows": [...]}
+Config-driven setup (factory pattern):
+
+```python
+app = Flask(__name__)
+app.config["SECRET_KEY"] = "your-secret-key"
+app.config["TOLLBOOTH_DEFAULT_DIFFICULTY"] = 14
+app.config["TOLLBOOTH_BRANDING"] = False
+app.config["TOLLBOOTH_ACCENT_COLOR"] = "#ff4488"
+
+tb = Tollbooth()
+tb.init_app(app)
+```
+
+Explicit secret still works and takes priority:
+
+```python
+tb = Tollbooth(app, secret="override-secret", default_difficulty=12)
 ```
 
 ### Django
 
+Uses Django's `SECRET_KEY` by default — no separate secret needed. Override with `TOLLBOOTH = {"secret": "..."}` if desired.
+
 ```python
 # settings.py
-TOLLBOOTH = {"secret": "your-secret-key"}
+SECRET_KEY = "your-secret-key"
+TOLLBOOTH = {"default_difficulty": 14}  # secret falls back to SECRET_KEY
 MIDDLEWARE = [
     "tollbooth.integrations.django.TollboothMiddleware",
     # ...
@@ -333,12 +354,14 @@ Typical browser solve time at difficulty 10 (SHA256-Balloon, 4 cores): **~0.5 s*
 
 ## Configuration
 
+Flask and Django integrations pull `secret` from the framework's built-in secret key (`SECRET_KEY`). All options below can also be set via Flask's `app.config["TOLLBOOTH_<UPPER_NAME>"]` or Django's `TOLLBOOTH = {...}` dict.
+
 ```python
 from tollbooth import SHA256Balloon, TollboothWSGI
 
 TollboothWSGI(
     app,
-    secret="your-secret-key",         # required — signs cookies + HMAC
+    secret="your-secret-key",         # required for WSGI/ASGI/Falcon
     default_difficulty=10,             # baseline PoW difficulty (default: 10)
     challenge_handler=SHA256Balloon(   # algorithm + its parameters
         space_cost=1024,               #   memory blocks per attempt (default: 1024)
@@ -466,17 +489,17 @@ Path-specific rules — protect `/admin` hard, leave everything else on defaults
 
 ## Integrations
 
-All framework integrations accept the same keyword arguments as `TollboothWSGI`/`TollboothASGI`.
+All framework integrations accept the same keyword arguments as `TollboothWSGI`/`TollboothASGI`. Flask and Django use the framework's `SECRET_KEY` by default — no separate secret needed.
 
-| Integration   | Import                             | Middleware class      | Per-route            | Exempt              |
-| ------------- | ---------------------------------- | --------------------- | -------------------- | ------------------- |
-| **Flask**     | `tollbooth.integrations.flask`     | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        |
-| **Django**    | `tollbooth.integrations.django`    | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` |
-| **FastAPI**   | `tollbooth.integrations.fastapi`   | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     |
-| **Falcon**    | `tollbooth.integrations.falcon`    | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     |
-| **Starlette** | `tollbooth.integrations.starlette` | `TollboothMiddleware` | —                    | `exclude=[...]`     |
-| **WSGI**      | `tollbooth`                        | `TollboothWSGI`       | —                    | —                   |
-| **ASGI**      | `tollbooth`                        | `TollboothASGI`       | —                    | —                   |
+| Integration   | Import                             | Middleware class      | Per-route            | Exempt              | Auto secret  |
+| ------------- | ---------------------------------- | --------------------- | -------------------- | ------------------- | ------------ |
+| **Flask**     | `tollbooth.integrations.flask`     | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        | `SECRET_KEY` |
+| **Django**    | `tollbooth.integrations.django`    | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` | `SECRET_KEY` |
+| **FastAPI**   | `tollbooth.integrations.fastapi`   | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     | —            |
+| **Falcon**    | `tollbooth.integrations.falcon`    | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     | —            |
+| **Starlette** | `tollbooth.integrations.starlette` | `TollboothMiddleware` | —                    | `exclude=[...]`     | —            |
+| **WSGI**      | `tollbooth`                        | `TollboothWSGI`       | —                    | —                   | —            |
+| **ASGI**      | `tollbooth`                        | `TollboothASGI`       | —                    | —                   | —            |
 
 ### Reusing an engine across integrations
 
