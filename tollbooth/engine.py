@@ -320,6 +320,8 @@ _CHALLENGE_HEADERS = {
 
 
 class EngineKwargs(TypedDict, total=False):
+    policy: "Policy | None"
+    rules: "list[Rule]"
     config_file: str | None
     rules_file: str | None
     blocklist: object
@@ -341,7 +343,8 @@ class EngineKwargs(TypedDict, total=False):
 
 
 class Engine:
-    def __init__(self, secret, policy=None, **kwargs: Unpack[EngineKwargs]):
+    def __init__(self, secret, **kwargs: Unpack[EngineKwargs]):
+        policy = kwargs.pop("policy", None)
         config_file = kwargs.pop("config_file", None)
         rules_file = kwargs.pop("rules_file", None)
         self.blocklist = kwargs.pop("blocklist", None)
