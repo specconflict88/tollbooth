@@ -256,6 +256,29 @@ class TestBase:
         assert result.headers["Location"] == "/ok"
         assert COOKIE_NAME in result.headers["Set-Cookie"]
 
+    def test_verify_blocked_with_valid_clearance(self):
+        tb = self.make_tb()
+        cid, nonce = solve(tb.engine)
+        first = tb.process_request(
+            make_request(
+                method="POST",
+                path=tb.verify_path,
+                form={"id": cid, "nonce": nonce, "redirect": "/ok"},
+            )
+        )
+        assert first is not None and first.status == 302
+        token = first.headers["Set-Cookie"].split("=", 1)[1].split(";")[0]
+        result = tb.process_request(
+            make_request(
+                method="POST",
+                path=tb.verify_path,
+                cookies={COOKIE_NAME: token},
+                form={"id": "any", "nonce": "0"},
+            )
+        )
+        assert result is not None
+        assert result.status == 403
+
     def test_html_verify_failure(self):
         tb = self.make_tb()
         result = tb.process_request(

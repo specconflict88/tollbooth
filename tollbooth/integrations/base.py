@@ -82,6 +82,9 @@ class TollboothBase:
             request["method"],
             request["path"],
         ):
+            cookie = request["cookies"].get(self.engine.policy.cookie_name)
+            if cookie and self.engine.check_cookie(cookie, request):
+                return self._deny(self._is_json(request))
             return self._handle_verify(request)
 
         cookie = request["cookies"].get(self.engine.policy.cookie_name)
