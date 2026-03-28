@@ -18,6 +18,15 @@ from .engine import (
     jwt_encode,
     load_policy,
 )
+from .extras.third_party_captcha import (
+    AltchaCreds,
+    ArkoseCreds,
+    CaptchaCreds,
+    CaptchaFoxCreds,
+    GeeTestCreds,
+    MTCaptchaCreds,
+    ThirdPartyCaptcha,
+)
 from .integrations.base import TollboothBase, TollboothKwargs
 from .middleware import TollboothASGI, TollboothWSGI
 
@@ -42,4 +51,11 @@ __all__ = [
     "load_policy",
     "jwt_encode",
     "jwt_decode",
+    "ThirdPartyCaptcha",
+    "CaptchaCreds",
+    "AltchaCreds",
+    "ArkoseCreds",
+    "CaptchaFoxCreds",
+    "GeeTestCreds",
+    "MTCaptchaCreds",
 ]

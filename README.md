@@ -105,6 +105,7 @@ app = TollboothWSGI(app, secret="key", challenge_handler=CharacterCaptcha())
     - [Redis-backed](#redis-backed)
     - [Blocklist rules](#blocklist-rules)
 - [Redis](#redis)
+- [Third-party CAPTCHAs](#third-party-captchas)
 - [Tests](#tests)
 - [Contributing](#contributing)
 - [Security](#security)
@@ -874,6 +875,118 @@ Namespace multiple deployments on one Redis instance:
 RedisEngine(client, secret="key", prefix="myapp")
 RedisEngine(client, secret="key", prefix="staging")
 ```
+
+## Third-party CAPTCHAs
+
+`ThirdPartyCaptcha` in `tollbooth.extras.third_party_captcha` embeds and validates third-party CAPTCHA providers across all supported frameworks. It is independent of tollbooth's own challenge engine.
+
+**Supported providers:** `recaptcha`, `hcaptcha`, `turnstile`, `friendly`, `captchafox`, `mtcaptcha`, `arkose`, `geetest`, `altcha`
+
+```python
+from tollbooth.extras.third_party_captcha import ThirdPartyCaptcha
+
+captcha = ThirdPartyCaptcha(
+    language="en",
+    theme="auto",                        # "light" | "dark" | "auto"
+    recaptcha_site_key="...",
+    recaptcha_secret="...",
+    hcaptcha_site_key="...",
+    hcaptcha_secret="...",
+    turnstile_site_key="...",
+    turnstile_secret="...",
+    friendly_site_key="...",
+    friendly_secret="...",
+    captchafox_site_key="...",
+    captchafox_secret="...",
+    mtcaptcha_site_key="...",
+    mtcaptcha_secret="...",
+    arkose_site_key="...",
+    arkose_secret="...",
+    geetest_site_key="...",
+    geetest_secret="...",
+    altcha_secret="...",                 # self-hosted, no site key needed
+)
+```
+
+`get_context()` returns all configured providers as a dict of pre-escaped HTML strings. `get_embed(provider)` returns HTML for a single provider.
+
+### Flask
+
+```python
+captcha.init_flask(app)   # injects all providers into every template context
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST" and captcha.is_recaptcha_valid():
+        ...
+    return render_template("login.html")  # {{ recaptcha }} in template
+```
+
+### Django
+
+```python
+# settings.py
+TEMPLATES[0]["OPTIONS"]["context_processors"].append(
+    captcha.as_django_context_processor()
+)
+
+# views.py
+def login(request):
+    if request.method == "POST" and captcha.is_recaptcha_valid(request):
+        ...
+    return render(request, "login.html")  # {{ recaptcha }} in template
+```
+
+### Falcon
+
+```python
+class LoginResource:
+    def on_post(self, req, resp):
+        if not captcha.is_recaptcha_valid(req):
+            raise falcon.HTTPForbidden()
+```
+
+### FastAPI / Starlette
+
+```python
+from fastapi import Request
+
+@app.post("/login")
+async def login(request: Request):
+    if not await captcha.is_recaptcha_valid_async(request):
+        raise HTTPException(status_code=403)
+```
+
+For template rendering, pass `captcha.get_context()` directly to `TemplateResponse`:
+
+```python
+return templates.TemplateResponse(
+    "login.html",
+    {"request": request, **captcha.get_context()},
+)
+```
+
+### Altcha (self-hosted)
+
+Altcha generates and verifies challenges server-side — no third-party account needed:
+
+```python
+captcha = ThirdPartyCaptcha(altcha_secret="your-secret")
+
+# In templates: {{ altcha }}, {{ altcha2 }}, … {{ altcha5 }} (hardness 1–5)
+# Validate:
+captcha.is_altcha_valid()               # Flask
+captcha.is_altcha_valid(request)        # Django / Falcon
+await captcha.is_altcha_valid_async(request)  # FastAPI / Starlette
+```
+
+### GeeTest v4
+
+GeeTest requires four hidden fields populated by the JS callback (`geetest_lotNumber`, `geetest_captchaOutput`, `geetest_passToken`, `geetest_genTime`). The embed handles this automatically; verification is HMAC-signed server-side.
+
+### Arkose Labs
+
+The embed loads Arkose's enforcement script dynamically, using the site key as the script path segment. The completed token is written to a hidden `fc-token` field.
 
 ## Tests
 
