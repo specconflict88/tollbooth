@@ -113,6 +113,11 @@
         "blocklist": true
     },
     {
+        "name": "crawler",
+        "action": "CHALLENGE",
+        "crawler": true
+    },
+    {
         "name": "curl-wget",
         "action": "WEIGH",
         "weight": 3,

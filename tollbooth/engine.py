@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING, TypedDict, Unpack
 if TYPE_CHECKING:
     from .blocklist import IPBlocklist
 
+try:
+    import crawleruseragents as _cua
+except ImportError:
+    _cua = None
+
 from .challenges import ChallengeBase, ChallengeHandler, SHA256Balloon
 
 Challenge = ChallengeBase
@@ -219,6 +224,7 @@ class Rule:
     difficulty: int = 0
     weight: int = 0
     blocklist: bool = False
+    crawler: bool = False
 
     def __post_init__(self):
         self.action = self.action.lower()
@@ -232,6 +238,11 @@ class Rule:
 
     def matches(self, request: Request, blocklist=None) -> bool:
         if self.blocklist and not _in_blocklist(blocklist, request["remote_addr"]):
+            return False
+
+        if self.crawler and (
+            _cua is None or not _cua.is_crawler(request["user_agent"])
+        ):
             return False
 
         if self._ua_re and not self._ua_re.search(request["user_agent"]):

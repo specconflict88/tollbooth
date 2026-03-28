@@ -605,11 +605,12 @@ Rules are evaluated top-to-bottom. The first matching terminal action (`allow`, 
     "remote_addresses": ["10.0.0.0/8", "2001:db8::/32"],
     "difficulty": 14,
     "weight": 3,
-    "blocklist": false
+    "blocklist": false,
+    "crawler": false
 }
 ```
 
-All match fields are optional and ANDed together. A rule with no match fields matches everything. `remote_addresses` uses CIDR notation; all other string fields use regex.
+All match fields are optional and ANDed together. A rule with no match fields matches everything. `remote_addresses` uses CIDR notation; all other string fields use regex. `blocklist: true` requires an `IPBlocklist` to be loaded; `crawler: true` requires the `crawleruseragents` package — rules with unmet dependencies are silently skipped.
 
 ### Actions
 
@@ -624,12 +625,12 @@ All match fields are optional and ANDed together. A rule with no match fields ma
 
 Tollbooth ships with [rules.json](https://github.com/libcaptcha/tollbooth/blob/main/tollbooth/rules.json) covering common traffic patterns out of the box:
 
-| Category      | Examples                                                                                 |
-| ------------- | ---------------------------------------------------------------------------------------- |
-| **Deny**      | sqlmap, Acunetix, Nmap, `.env`/`.git` probes, shell probes, path traversal               |
-| **Allow**     | Googlebot, Bingbot, UptimeRobot, Pingdom, Slack/Discord previews, archive.org            |
-| **Challenge** | AI crawlers (GPT/Claude/CCBot, diff=14), headless browsers (diff=12), Scrapy (diff=12)   |
-| **Weigh**     | curl/wget (+3), missing Accept (+3), missing Accept-Language (+2), Connection:close (+2) |
+| Category      | Examples                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Deny**      | sqlmap, Acunetix, Nmap, `.env`/`.git` probes, shell probes, path traversal                                                   |
+| **Allow**     | Googlebot, Bingbot, UptimeRobot, Pingdom, Slack/Discord previews, archive.org                                                |
+| **Challenge** | AI crawlers (GPT/Claude/CCBot, diff=14), headless browsers (diff=12), Scrapy (diff=12), known crawlers (`crawleruseragents`) |
+| **Weigh**     | curl/wget (+3), missing Accept (+3), missing Accept-Language (+2), Connection:close (+2)                                     |
 
 ### Custom policy examples
 
