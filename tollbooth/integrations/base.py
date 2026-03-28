@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Unpack
 
-from ..engine import _CHALLENGE_HEADERS, Engine, EngineKwargs, _safe_redirect
+from ..engine import Engine, EngineKwargs, _challenge_headers, _safe_redirect
 
 
 class TollboothKwargs(EngineKwargs, total=False):
@@ -144,7 +144,9 @@ class TollboothBase:
             return Response(200, dict(_JSON_CT), body)
 
         body = self.engine.render_challenge(challenge, path)
-        return Response(200, dict(_CHALLENGE_HEADERS), body)
+        return Response(
+            200, _challenge_headers(self.engine.policy.challenge_handler), body
+        )
 
     def _handle_verify(self, request):
         form = request["form"]
@@ -181,7 +183,9 @@ class TollboothBase:
                     redirect,
                     error='<p class="error">Incorrect \u2014 try again.</p>',
                 )
-                return Response(429, dict(_CHALLENGE_HEADERS), body)
+                return Response(
+                    429, _challenge_headers(self.engine.policy.challenge_handler), body
+                )
             return Response(403, {"Content-Type": "text/plain"}, "Invalid")
 
         if use_json:

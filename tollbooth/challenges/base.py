@@ -11,6 +11,7 @@ class ChallengeType(str, Enum):
     NAVIGATOR_ATTESTATION = "navigator-attestation"
     SLIDING_CAPTCHA = "sliding-captcha"
     CIRCLE_CAPTCHA = "circle-captcha"
+    THIRD_PARTY_CAPTCHA = "third-party-captcha"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
@@ -20,6 +21,7 @@ DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.NAVIGATOR_ATTESTATION: 0,
     ChallengeType.SLIDING_CAPTCHA: -4,
     ChallengeType.CIRCLE_CAPTCHA: -4,
+    ChallengeType.THIRD_PARTY_CAPTCHA: 0,
 }
 
 
@@ -87,6 +89,10 @@ class ChallengeHandler(ABC):
 
     async def handle_websocket(self, _scope, _receive, _send, _engine) -> None:
         pass
+
+    @property
+    def extra_csp(self) -> str:
+        return ""
 
     @property
     def supports_http_poll(self) -> bool:

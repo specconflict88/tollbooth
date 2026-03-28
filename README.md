@@ -90,6 +90,8 @@ app = TollboothWSGI(app, secret="key", challenge_handler=CharacterCaptcha())
         - [Setup](#setup-1)
     - [Circle CAPTCHA](#circle-captcha)
         - [Setup](#setup-2)
+    - [Third-party CAPTCHA challenge](#third-party-captcha-challenge)
+        - [Setup](#setup-3)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
 - [Rules](#rules)
@@ -134,6 +136,7 @@ examples/
     sliding_captcha.py        # Sliding puzzle CAPTCHA  (requires Pillow)
     circle_captcha.py         # Click-the-incomplete-circle CAPTCHA  (requires Pillow)
     navigator_attestation.py  # Browser fingerprinting
+    third_party_captcha.py    # Third-party CAPTCHA (pass provider as first arg)
 ```
 
 ## Install
@@ -512,6 +515,49 @@ app = TollboothWSGI(
 )
 ```
 
+### Third-party CAPTCHA challenge
+
+`ThirdPartyCaptchaChallenge` integrates any supported third-party CAPTCHA provider directly into tollbooth's own challenge engine. The user is redirected to a tollbooth-hosted page that renders the CAPTCHA widget; on completion the widget token is submitted and verified server-side before issuing the access cookie.
+
+**Supported providers:** `recaptcha`, `hcaptcha`, `turnstile`, `friendly`, `captchafox`, `mtcaptcha`, `arkose`, `geetest`, `altcha`
+
+The page retries on failure (`retry_on_failure = True`). Difficulty does not affect the external verification logic; the offset is `0`.
+
+#### Setup
+
+```python
+from tollbooth import ThirdPartyCaptchaChallenge, CaptchaCreds, AltchaCreds, TollboothWSGI
+
+# Standard provider (reCAPTCHA, hCaptcha, Turnstile, …)
+app = TollboothWSGI(
+    app,
+    secret="your-secret-key",
+    challenge_handler=ThirdPartyCaptchaChallenge(
+        provider="recaptcha",
+        creds=CaptchaCreds(
+            site_key="6Le...",
+            secret_key="6Le...",
+        ),
+        language="en",   # optional, default "auto"
+        theme="auto",    # "light" | "dark" | "auto"
+    ),
+)
+
+# GeeTest v4
+challenge_handler=ThirdPartyCaptchaChallenge(
+    provider="geetest",
+    creds=CaptchaCreds(site_key="...", secret_key="..."),
+)
+
+# Altcha (self-hosted, no site key)
+challenge_handler=ThirdPartyCaptchaChallenge(
+    provider="altcha",
+    creds=AltchaCreds(secret_key="your-altcha-secret"),
+)
+```
+
+The credential type aliases `ReCaptchaCreds`, `HCaptchaCreds`, `TurnstileCreds`, `FriendlyCaptchaCreds`, `CaptchaFoxCreds`, `MTCaptchaCreds`, `ArkoseCreds`, `GeeTestCreds` are all aliases for `CaptchaCreds`.
+
 ### Difficulty reference
 
 Expected hashes to solve (2^difficulty). Each +1 doubles solve time.
@@ -879,6 +925,8 @@ RedisEngine(client, secret="key", prefix="staging")
 ## Third-party CAPTCHAs
 
 `ThirdPartyCaptcha` in `tollbooth.extras.third_party_captcha` embeds and validates third-party CAPTCHA providers across all supported frameworks. It is independent of tollbooth's own challenge engine.
+
+To use a third-party CAPTCHA as a tollbooth challenge type instead (redirect-based, engine-managed), see [`ThirdPartyCaptchaChallenge`](#third-party-captcha-challenge).
 
 **Supported providers:** `recaptcha`, `hcaptcha`, `turnstile`, `friendly`, `captchafox`, `mtcaptcha`, `arkose`, `geetest`, `altcha`
 

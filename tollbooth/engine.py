@@ -336,7 +336,7 @@ def _safe_redirect(redirect: str) -> str:
     return redirect
 
 
-_CSP = (
+_BASE_CSP = (
     "default-src 'none'; "
     "script-src 'unsafe-inline'; "
     "worker-src blob:; "
@@ -345,12 +345,17 @@ _CSP = (
     "connect-src 'self'"
 )
 
-_CHALLENGE_HEADERS = {
+_BASE_CHALLENGE_HEADERS = {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": _CSP,
 }
+
+
+def _challenge_headers(handler) -> dict[str, str]:
+    extra = handler.extra_csp
+    csp = f"{_BASE_CSP}; {extra}" if extra else _BASE_CSP
+    return {**_BASE_CHALLENGE_HEADERS, "Content-Security-Policy": csp}
 
 
 class EngineKwargs(TypedDict, total=False):
@@ -571,7 +576,7 @@ class Engine:
 
         challenge = self.issue_challenge(difficulty, request)
         body = self.render_challenge(challenge, request["path"])
-        return "challenge", 200, _CHALLENGE_HEADERS, body
+        return "challenge", 200, _challenge_headers(self.policy.challenge_handler), body
 
     def handle_verify(
         self,
@@ -602,7 +607,7 @@ class Engine:
                     redirect,
                     error='<p class="error">Incorrect \u2014 try again.</p>',
                 )
-                return 200, _CHALLENGE_HEADERS, body
+                return 200, _challenge_headers(self.policy.challenge_handler), body
             return 403, {"Content-Type": "text/plain"}, "Invalid"
 
         redirect = _safe_redirect(form.get("redirect", "/"))

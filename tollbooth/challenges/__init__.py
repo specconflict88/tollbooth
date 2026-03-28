@@ -5,6 +5,7 @@ from .navigator_attestation import NavigatorAttestation, validate_signals
 from .sha256 import SHA256
 from .sha256_balloon import SHA256Balloon
 from .sliding_captcha import SlidingCaptcha
+from .third_party_captcha import ThirdPartyCaptchaChallenge
 
 __all__ = [
     "ChallengeBase",
@@ -17,5 +18,6 @@ __all__ = [
     "SHA256Balloon",
     "SHA256",
     "SlidingCaptcha",
+    "ThirdPartyCaptchaChallenge",
     "validate_signals",
 ]

@@ -183,6 +183,56 @@ class _Altcha:
             return False
 
 
+def _call_provider_api(provider: str, token: str, secret: str) -> bool:
+    p = _PROVIDERS[provider]
+    field = p["field"]
+    params = {
+        p.get("secret_param", "secret"): secret,
+        p.get("token_param", field): token,
+    }
+    key = p.get("response_key", "success")
+    try:
+        if p.get("http_method") == "GET":
+            url = p["api"] + "?" + urllib.parse.urlencode(params)
+            req = urllib.request.Request(url)
+        else:
+            req = urllib.request.Request(
+                p["api"], data=urllib.parse.urlencode(params).encode()
+            )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return json.loads(resp.read()).get(key, False)
+    except Exception:
+        return False
+
+
+def _call_geetest_api(
+    site_key: str,
+    secret: str,
+    lot_number: str,
+    captcha_output: str,
+    pass_token: str,
+    gen_time: str,
+) -> bool:
+    sign = hmac.new(secret.encode(), lot_number.encode(), hashlib.sha256).hexdigest()
+    params = urllib.parse.urlencode(
+        {
+            "lot_number": lot_number,
+            "captcha_output": captcha_output,
+            "pass_token": pass_token,
+            "gen_time": gen_time,
+            "sign_token": sign,
+        }
+    ).encode()
+    url = f"https://gcaptcha4.geetest.com/validate?captcha_id={site_key}"
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, data=params), timeout=3
+        ) as resp:
+            return json.loads(resp.read()).get("result") == "success"
+    except Exception:
+        return False
+
+
 class ThirdPartyCaptcha:
     def __init__(self, language="auto", theme="auto", altcha_secret=None, **kwargs):
         self.language = language
@@ -294,29 +344,10 @@ class ThirdPartyCaptcha:
         )
 
     def _verify_http(self, captcha_type: str, token: str) -> bool:
-        provider = _PROVIDERS[captcha_type]
-        field = provider["field"]
         secret = self.kwargs.get(f"{captcha_type}_secret")
         if not secret:
             return False
-        params = {
-            provider.get("secret_param", "secret"): secret,
-            provider.get("token_param", field): token,
-        }
-        response_key = provider.get("response_key", "success")
-        try:
-            if provider.get("http_method") == "GET":
-                url = provider["api"] + "?" + urllib.parse.urlencode(params)
-                req = urllib.request.Request(url)
-            else:
-                req = urllib.request.Request(
-                    provider["api"],
-                    data=urllib.parse.urlencode(params).encode(),
-                )
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                return json.loads(resp.read()).get(response_key, False)
-        except Exception:
-            return False
+        return _call_provider_api(captcha_type, token, secret)
 
     def _verify_geetest_http(
         self,
@@ -327,26 +358,9 @@ class ThirdPartyCaptcha:
         pass_token: str,
         gen_time: str,
     ) -> bool:
-        sign = hmac.new(
-            secret.encode(), lot_number.encode(), hashlib.sha256
-        ).hexdigest()
-        params = urllib.parse.urlencode(
-            {
-                "lot_number": lot_number,
-                "captcha_output": captcha_output,
-                "pass_token": pass_token,
-                "gen_time": gen_time,
-                "sign_token": sign,
-            }
-        ).encode()
-        url = f"https://gcaptcha4.geetest.com/validate?captcha_id={site_key}"
-        try:
-            with urllib.request.urlopen(
-                urllib.request.Request(url, data=params), timeout=3
-            ) as resp:
-                return json.loads(resp.read()).get("result") == "success"
-        except Exception:
-            return False
+        return _call_geetest_api(
+            site_key, secret, lot_number, captcha_output, pass_token, gen_time
+        )
 
     def _get_sync_token(self, form_key: str, request=None) -> str | None:
         if request is None:

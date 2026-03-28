@@ -7,6 +7,7 @@ from .challenges import (
     NavigatorAttestation,
     SHA256Balloon,
     SlidingCaptcha,
+    ThirdPartyCaptchaChallenge,
 )
 from .engine import (
     Engine,
@@ -48,6 +49,7 @@ __all__ = [
     "SHA256",
     "SHA256Balloon",
     "SlidingCaptcha",
+    "ThirdPartyCaptchaChallenge",
     "load_policy",
     "jwt_encode",
     "jwt_decode",
