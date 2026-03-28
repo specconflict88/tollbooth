@@ -148,11 +148,10 @@ class TollboothBase:
 
     def _handle_verify(self, request):
         form = request["form"]
-        token = self.engine.validate_challenge(
-            form.get("id", ""),
-            form.get("nonce", ""),
-            request,
+        nonce = form.get("nonce") or ",".join(
+            filter(None, [form.get("nonce.x", ""), form.get("nonce.y", "")])
         )
+        token = self.engine.validate_challenge(form.get("id", ""), nonce, request)
         use_json = self._is_json(request)
 
         if not token:

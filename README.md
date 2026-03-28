@@ -65,6 +65,8 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
         - [Setup](#setup)
     - [Sliding CAPTCHA](#sliding-captcha)
         - [Setup](#setup-1)
+    - [Circle CAPTCHA](#circle-captcha)
+        - [Setup](#setup-2)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
 - [Rules](#rules)
@@ -106,6 +108,7 @@ examples/
     sha256.py                 # SHA256 (faster, no memory cost)
     character_captcha.py      # Character CAPTCHA  (requires Pillow)
     sliding_captcha.py        # Sliding puzzle CAPTCHA  (requires Pillow)
+    circle_captcha.py         # Click-the-incomplete-circle CAPTCHA  (requires Pillow)
     navigator_attestation.py  # Browser fingerprinting
 ```
 
@@ -327,7 +330,8 @@ difficulty=10 (policy setting)
       ├── SHA256Balloon    offset  +0  →  effective 10   ~1 024 hashes × 32 KB/hash
       ├── SHA256           offset  +6  →  effective 16   ~65 536 hashes  (no memory cost)
       ├── CharacterCaptcha offset  -4  →  effective  6   6-character solution
-      └── SlidingCaptcha   offset  -4  →  effective  6   sliding puzzle
+      ├── SlidingCaptcha   offset  -4  →  effective  6   sliding puzzle
+      └── CircleCaptcha    offset  -4  →  effective  6   click the incomplete circle
 ```
 
 | Type                    | Class                  | Offset | Solved by    | GPU-resistant |
@@ -336,6 +340,7 @@ difficulty=10 (policy setting)
 | `sha256`                | `SHA256`               | +6     | browser JS   | ✗             |
 | `character-captcha`     | `CharacterCaptcha`     | -4     | human        | ✓             |
 | `sliding-captcha`       | `SlidingCaptcha`       | -4     | human        | ✓             |
+| `circle-captcha`        | `CircleCaptcha`        | -4     | human        | ✓             |
 | `navigator-attestation` | `NavigatorAttestation` | +0     | browser (WS) | ✓             |
 
 ### SHA256Balloon & SHA256
@@ -457,6 +462,28 @@ app = TollboothWSGI(
     secret="your-secret-key",
     challenge_handler=SlidingCaptcha(
         token_ttl=1800,  # solution token lifetime in seconds
+    ),
+)
+```
+
+### Circle CAPTCHA
+
+Human-solved click challenge. Renders an image containing several complete circles and one with a visible gap in its arc. The user clicks the incomplete circle — click coordinates are captured and submitted automatically. The correct circle's center and radius are HMAC-encrypted in the challenge token. Verification accepts clicks within `radius + 15 px` of the target circle's center. Difficulty controls the number of circles (`max(3, 2 + d//2)`) and gap arc size (`max(25°, 50° - 2d)`). Requires `Pillow`:
+
+```bash
+pip install tollbooth[image]
+```
+
+#### Setup
+
+```python
+from tollbooth import CircleCaptcha, TollboothWSGI
+
+app = TollboothWSGI(
+    app,
+    secret="your-secret-key",
+    challenge_handler=CircleCaptcha(
+        token_ttl=1800,
     ),
 )
 ```

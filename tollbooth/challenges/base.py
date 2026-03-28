@@ -10,6 +10,7 @@ class ChallengeType(str, Enum):
     CHARACTER_CAPTCHA = "character-captcha"
     NAVIGATOR_ATTESTATION = "navigator-attestation"
     SLIDING_CAPTCHA = "sliding-captcha"
+    CIRCLE_CAPTCHA = "circle-captcha"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
@@ -18,6 +19,7 @@ DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.CHARACTER_CAPTCHA: -4,
     ChallengeType.NAVIGATOR_ATTESTATION: 0,
     ChallengeType.SLIDING_CAPTCHA: -4,
+    ChallengeType.CIRCLE_CAPTCHA: -4,
 }
 
 

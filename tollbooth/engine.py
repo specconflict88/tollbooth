@@ -569,11 +569,10 @@ class Engine:
         request: Request,
     ) -> tuple[int, dict[str, str], str]:
         form = request["form"]
-        token = self.validate_challenge(
-            form.get("id", ""),
-            form.get("nonce", ""),
-            request,
+        nonce = form.get("nonce") or ",".join(
+            filter(None, [form.get("nonce.x", ""), form.get("nonce.y", "")])
         )
+        token = self.validate_challenge(form.get("id", ""), nonce, request)
 
         if not token:
             ip_hash = self._hash_ip(request["remote_addr"])
