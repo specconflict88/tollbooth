@@ -4,6 +4,14 @@
 
 A bot-challenge Python middleware issuing brief challenges, granting solvers signed access cookies.
 
+[![PyPI](https://img.shields.io/pypi/v/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
+[![Python](https://img.shields.io/pypi/pyversions/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
+[![License](https://img.shields.io/github/license/libcaptcha/tollbooth?style=flat-square)](LICENSE)
+[![Issues](https://img.shields.io/github/issues/libcaptcha/tollbooth?style=flat-square)](https://github.com/libcaptcha/tollbooth/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+[![Stars](https://img.shields.io/github/stars/libcaptcha/tollbooth?style=flat-square)](https://github.com/libcaptcha/tollbooth/stargazers)
+[![Downloads](https://img.shields.io/pypi/dm/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
+
 </div>
 
 ```python
@@ -70,6 +78,8 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
     - [Blocklist rules](#blocklist-rules)
 - [Redis](#redis)
 - [Tests](#tests)
+- [Contributing](#contributing)
+- [Security](#security)
 - [Managing screenshots](#managing-screenshots)
 - [License](#license)
 
@@ -778,6 +788,29 @@ pip install black isort
 isort . && black .
 npx prtfm
 ```
+
+## Contributing
+
+We welcome contributions of all kinds — bug reports, feature requests, docs improvements, and code changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**Quick links:**
+
+- [Open an issue](https://github.com/libcaptcha/tollbooth/issues/new) — bug reports, feature ideas, questions
+- [Browse open issues](https://github.com/libcaptcha/tollbooth/issues) — find something to work on
+- [Good first issues](https://github.com/libcaptcha/tollbooth/labels/good%20first%20issue) — great starting points for new contributors
+
+```bash
+git clone https://github.com/libcaptcha/tollbooth.git
+cd tollbooth
+pip install -e ".[test,flask,django,fastapi,falcon,starlette,redis,image]"
+pytest tests/ -v
+```
+
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+
+## Security
+
+To report a vulnerability, **do not open a public issue**. See [SECURITY.md](SECURITY.md) for responsible disclosure instructions.
 
 ## Managing screenshots
 
