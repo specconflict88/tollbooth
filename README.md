@@ -6,9 +6,9 @@ A bot-challenge Python middleware issuing brief challenges, granting solvers sig
 
 [![PyPI](https://img.shields.io/pypi/v/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
 [![Python](https://img.shields.io/pypi/pyversions/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
-[![License](https://img.shields.io/github/license/libcaptcha/tollbooth?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/github/license/libcaptcha/tollbooth?style=flat-square)](https://github.com/libcaptcha/tollbooth/blob/main/LICENSE)
 [![Issues](https://img.shields.io/github/issues/libcaptcha/tollbooth?style=flat-square)](https://github.com/libcaptcha/tollbooth/issues)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/libcaptcha/tollbooth/blob/main/CONTRIBUTING.md)
 [![Stars](https://img.shields.io/github/stars/libcaptcha/tollbooth?style=flat-square)](https://github.com/libcaptcha/tollbooth/stargazers)
 [![Downloads](https://img.shields.io/pypi/dm/tollbooth?style=flat-square)](https://pypi.org/project/tollbooth/)
 
@@ -515,7 +515,7 @@ All match fields are optional and ANDed together. A rule with no match fields ma
 
 ### Default rules
 
-Tollbooth ships with [rules.json](tollbooth/rules.json) covering common traffic patterns out of the box:
+Tollbooth ships with [rules.json](https://github.com/libcaptcha/tollbooth/blob/main/tollbooth/rules.json) covering common traffic patterns out of the box:
 
 | Category      | Examples                                                                                 |
 | ------------- | ---------------------------------------------------------------------------------------- |
@@ -814,7 +814,7 @@ npx prtfm
 
 ## Contributing
 
-We welcome contributions of all kinds — bug reports, feature requests, docs improvements, and code changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions of all kinds — bug reports, feature requests, docs improvements, and code changes. See [CONTRIBUTING.md](https://github.com/libcaptcha/tollbooth/blob/main/CONTRIBUTING.md) for guidelines.
 
 **Quick links:**
 
@@ -829,11 +829,11 @@ pip install -e ".[test,flask,django,fastapi,falcon,starlette,redis,image]"
 pytest tests/ -v
 ```
 
-Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+Please read our [Code of Conduct](https://github.com/libcaptcha/tollbooth/blob/main/CODE_OF_CONDUCT.md) before participating.
 
 ## Security
 
-To report a vulnerability, **do not open a public issue**. See [SECURITY.md](SECURITY.md) for responsible disclosure instructions.
+To report a vulnerability, **do not open a public issue**. See [SECURITY.md](https://github.com/libcaptcha/tollbooth/blob/main/SECURITY.md) for responsible disclosure instructions.
 
 ## Managing screenshots
 
@@ -859,4 +859,4 @@ git checkout main
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/libcaptcha/tollbooth/blob/main/LICENSE)
