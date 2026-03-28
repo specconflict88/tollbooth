@@ -27,11 +27,11 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
 
 ## Screenshots
 
-**ImageCaptcha() Solution: `U5R6H3`**
+**CharacterCaptcha() Solution: `U5R6H3`**
 
 <div style="display: flex; gap: 10px;">
-  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/image-captcha-light.webp" alt="Light" width="400">
-  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/image-captcha-dark.webp" alt="Dark" width="400">
+  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/character-captcha-light.webp" alt="Light" width="300">
+  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/character-captcha-dark.webp" alt="Dark" width="300">
 </div>
 
 <br>
@@ -39,13 +39,14 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
 **SHA256Balloon() `Default`**
 
 <div style="display: flex; gap: 10px;">
-  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/sha256-balloon-light.webp" alt="Light" width="400">
-  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/sha256-balloon-dark.webp" alt="Dark" width="400">
+  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/sha256-balloon-light.webp" alt="Light" width="300">
+  <img src="https://raw.githubusercontent.com/libcaptcha/tollbooth/screenshots/sha256-balloon-dark.webp" alt="Dark" width="300">
 </div>
 
 ## Contents
 
 - [Screenshots](#screenshots)
+- [Examples](#examples)
 - [Install](#install)
 - [How it works](#how-it-works)
 - [Usage](#usage)
@@ -60,7 +61,7 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
         - [Tuning](#tuning)
     - [Navigator Attestation](#navigator-attestation)
         - [Reading the score](#reading-the-score)
-    - [Image CAPTCHA](#image-captcha)
+    - [Character CAPTCHA](#character-captcha)
         - [Setup](#setup)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
@@ -83,6 +84,28 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
 - [Managing screenshots](#managing-screenshots)
 - [License](#license)
 
+## Examples
+
+Runnable examples for every integration and challenge type:
+
+```
+examples/
+  general.py             # WSGI + ASGI quickstart  (python examples/general.py [wsgi|asgi])
+  integrations/
+    wsgi.py                # bare WSGI
+    asgi.py                # bare ASGI  (requires uvicorn)
+    flask_app.py           # Flask middleware + per-route + exempt
+    fastapi_app.py         # FastAPI middleware + dependency + verify
+    starlette_app.py       # Starlette middleware
+    django_app.py          # Django — self-contained, runs with runserver
+    falcon_app.py          # Falcon middleware + per-resource hook
+  challenges/
+    sha256_balloon.py      # SHA256Balloon (default, memory-hard)
+    sha256.py              # SHA256 (faster, no memory cost)
+    character_captcha.py   # Image CAPTCHA  (requires Pillow)
+    navigator_attestation.py # Browser fingerprinting
+```
+
 ## Install
 
 ```bash
@@ -93,7 +116,7 @@ pip install tollbooth[fastapi]   # FastAPI
 pip install tollbooth[falcon]    # Falcon
 pip install tollbooth[starlette] # Starlette
 pip install tollbooth[redis]     # Redis backend
-pip install tollbooth[image]     # Image CAPTCHA (Pillow)
+pip install tollbooth[image]     # Character CAPTCHA (Pillow)
 ```
 
 ## How it works
@@ -300,14 +323,14 @@ difficulty=10 (policy setting)
       │
       ├── SHA256Balloon  offset  +0  →  effective 10   ~1 024 hashes × 32 KB/hash
       ├── SHA256         offset  +6  →  effective 16   ~65 536 hashes  (no memory cost)
-      └── ImageCaptcha   offset  -4  →  effective  6   6-character solution
+      └── CharacterCaptcha  offset  -4  →  effective  6   6-character solution
 ```
 
 | Type                    | Class                  | Offset | Solved by    | GPU-resistant |
 | ----------------------- | ---------------------- | ------ | ------------ | ------------- |
 | `sha256-balloon`        | `SHA256Balloon`        | +0     | browser JS   | ✓             |
 | `sha256`                | `SHA256`               | +6     | browser JS   | ✗             |
-| `image-captcha`         | `ImageCaptcha`         | -4     | human        | ✓             |
+| `character-captcha`     | `CharacterCaptcha`     | -4     | human        | ✓             |
 | `navigator-attestation` | `NavigatorAttestation` | +0     | browser (WS) | ✓             |
 
 ### SHA256Balloon & SHA256
@@ -384,9 +407,9 @@ score = request.state.tollbooth.score
 score = req.context.tollbooth.score
 ```
 
-The claims object also exposes `iat`, `exp`, `ip`, and `cid` as attributes. `score` is `None` for PoW challenges (SHA256Balloon / SHA256 / ImageCaptcha) — only `NavigatorAttestation` embeds it.
+The claims object also exposes `iat`, `exp`, `ip`, and `cid` as attributes. `score` is `None` for PoW challenges (SHA256Balloon / SHA256 / CharacterCaptcha) — only `NavigatorAttestation` embeds it.
 
-### Image CAPTCHA
+### Character CAPTCHA
 
 Human-solved visual challenge. Renders distorted alphanumeric characters over a background using system fonts, with random per-character rotation, color, and position, plus line and noise overlays. Solution length scales with difficulty (offset -4): difficulty 10 → 6 characters. Solution is HMAC-encrypted in the challenge store — never stored in plaintext. Works without JavaScript. Requires `Pillow`:
 
@@ -397,12 +420,12 @@ pip install tollbooth[image]
 #### Setup
 
 ```python
-from tollbooth import ImageCaptcha, TollboothWSGI
+from tollbooth import CharacterCaptcha, TollboothWSGI
 
 app = TollboothWSGI(
     app,
     secret="your-secret-key",          # also used to sign CAPTCHA solution tokens
-    challenge_handler=ImageCaptcha(
+    challenge_handler=CharacterCaptcha(
         backgrounds_path="/path/to/backgrounds", # optional directory of .jpg files
         token_ttl=1800,                          # solution token lifetime in seconds
     ),

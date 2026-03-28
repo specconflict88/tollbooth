@@ -1,5 +1,5 @@
 from .base import DIFFICULTY_OFFSETS, ChallengeBase, ChallengeHandler, ChallengeType
-from .image_captcha import ImageCaptcha
+from .character_captcha import CharacterCaptcha
 from .navigator_attestation import NavigatorAttestation, validate_signals
 from .sha256 import SHA256
 from .sha256_balloon import SHA256Balloon
@@ -9,7 +9,7 @@ __all__ = [
     "ChallengeHandler",
     "ChallengeType",
     "DIFFICULTY_OFFSETS",
-    "ImageCaptcha",
+    "CharacterCaptcha",
     "NavigatorAttestation",
     "SHA256Balloon",
     "SHA256",

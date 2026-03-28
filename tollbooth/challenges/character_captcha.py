@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
+from typing import cast
 
 from .base import DIFFICULTY_OFFSETS, ChallengeBase, ChallengeHandler, ChallengeType
 
@@ -96,21 +97,23 @@ _TOKEN_TTL = 1800
 
 
 @dataclass
-class ImageCaptcha(ChallengeHandler):
+class CharacterCaptcha(ChallengeHandler):
     backgrounds_path: str | None = None
     token_ttl: int = _TOKEN_TTL
     secret: bytes = field(default_factory=lambda: secrets.token_bytes(32))
 
     @property
     def challenge_type(self) -> ChallengeType:
-        return ChallengeType.IMAGE_CAPTCHA
+        return ChallengeType.CHARACTER_CAPTCHA
 
     def to_difficulty(self, base: int) -> int:
         return base + DIFFICULTY_OFFSETS[self.challenge_type]
 
     @property
     def template(self) -> str:
-        return (Path(__file__).parent / "templates" / "image_captcha.html").read_text()
+        return (
+            Path(__file__).parent / "templates" / "character_captcha.html"
+        ).read_text()
 
     def _sign(self, payload: str) -> str:
         return hmac.new(self.secret, payload.encode(), hashlib.sha256).hexdigest()
@@ -182,7 +185,8 @@ class ImageCaptcha(ChallengeHandler):
             from PIL import Image, ImageDraw, ImageFont
         except ImportError as e:
             raise ImportError(
-                "Pillow is required for ImageCaptcha: " "pip install tollbooth[image]"
+                "Pillow is required for CharacterCaptcha: "
+                "pip install tollbooth[image]"
             ) from e
 
         fonts = _find_fonts()
@@ -216,13 +220,14 @@ class ImageCaptcha(ChallengeHandler):
                     min(img_height // 2 + size // 2, img_height),
                 )
             )
-            avg_bg: tuple[int, ...] = (
-                bg_region.convert("RGB").resize((1, 1)).getpixel((0, 0))
-            )  # type: ignore[assignment]
+            avg_bg = cast(
+                tuple[int, int, int],
+                bg_region.convert("RGB").resize((1, 1)).getpixel((0, 0)),
+            )
             color = self._contrasting_color(avg_bg)
 
             rotation = secrets.randbelow(41) - 20
-            char_img = Image.new("RGBA", (char_w, char_h), (0, 0, 0, 0))
+            char_img = Image.new("RGBA", (int(char_w), int(char_h)), (0, 0, 0, 0))
             char_draw = ImageDraw.Draw(char_img)
             char_draw.text((10, 10), char, font=font, fill=(*color, 255))
             char_img = char_img.rotate(rotation, expand=True)

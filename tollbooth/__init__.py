@@ -2,7 +2,7 @@ from .blocklist import IPBlocklist
 from .challenges import (
     SHA256,
     ChallengeType,
-    ImageCaptcha,
+    CharacterCaptcha,
     NavigatorAttestation,
     SHA256Balloon,
 )
@@ -27,7 +27,7 @@ __all__ = [
     "ChallengeType",
     "Engine",
     "EngineKwargs",
-    "ImageCaptcha",
+    "CharacterCaptcha",
     "IPBlocklist",
     "NavigatorAttestation",
     "Policy",

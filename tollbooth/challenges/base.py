@@ -7,14 +7,14 @@ from enum import Enum
 class ChallengeType(str, Enum):
     SHA256_BALLOON = "sha256-balloon"
     SHA256 = "sha256"
-    IMAGE_CAPTCHA = "image-captcha"
+    CHARACTER_CAPTCHA = "character-captcha"
     NAVIGATOR_ATTESTATION = "navigator-attestation"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.SHA256_BALLOON: 0,
     ChallengeType.SHA256: 8,
-    ChallengeType.IMAGE_CAPTCHA: -4,
+    ChallengeType.CHARACTER_CAPTCHA: -4,
     ChallengeType.NAVIGATOR_ATTESTATION: 0,
 }
 
