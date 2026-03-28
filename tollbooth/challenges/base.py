@@ -9,6 +9,7 @@ class ChallengeType(str, Enum):
     SHA256 = "sha256"
     CHARACTER_CAPTCHA = "character-captcha"
     NAVIGATOR_ATTESTATION = "navigator-attestation"
+    SLIDING_CAPTCHA = "sliding-captcha"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
@@ -16,6 +17,7 @@ DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.SHA256: 8,
     ChallengeType.CHARACTER_CAPTCHA: -4,
     ChallengeType.NAVIGATOR_ATTESTATION: 0,
+    ChallengeType.SLIDING_CAPTCHA: -4,
 }
 
 

@@ -63,6 +63,8 @@ Bots get a browser challenge page. Humans solve it once, get a cookie, browse fr
         - [Reading the score](#reading-the-score)
     - [Character CAPTCHA](#character-captcha)
         - [Setup](#setup)
+    - [Sliding CAPTCHA](#sliding-captcha)
+        - [Setup](#setup-1)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
 - [Rules](#rules)
@@ -103,6 +105,7 @@ examples/
     sha256_balloon.py         # SHA256Balloon (default, memory-hard)
     sha256.py                 # SHA256 (faster, no memory cost)
     character_captcha.py      # Character CAPTCHA  (requires Pillow)
+    sliding_captcha.py        # Sliding puzzle CAPTCHA  (requires Pillow)
     navigator_attestation.py  # Browser fingerprinting
 ```
 
@@ -116,7 +119,7 @@ pip install tollbooth[fastapi]   # FastAPI
 pip install tollbooth[falcon]    # Falcon
 pip install tollbooth[starlette] # Starlette
 pip install tollbooth[redis]     # Redis backend
-pip install tollbooth[image]     # Character CAPTCHA (Pillow)
+pip install tollbooth[image]     # Character / Sliding CAPTCHA (Pillow)
 ```
 
 ## How it works
@@ -321,9 +324,10 @@ Difficulty is expressed in **SHA256-Balloon units** — each type applies its ow
 ```
 difficulty=10 (policy setting)
       │
-      ├── SHA256Balloon  offset  +0  →  effective 10   ~1 024 hashes × 32 KB/hash
-      ├── SHA256         offset  +6  →  effective 16   ~65 536 hashes  (no memory cost)
-      └── CharacterCaptcha  offset  -4  →  effective  6   6-character solution
+      ├── SHA256Balloon    offset  +0  →  effective 10   ~1 024 hashes × 32 KB/hash
+      ├── SHA256           offset  +6  →  effective 16   ~65 536 hashes  (no memory cost)
+      ├── CharacterCaptcha offset  -4  →  effective  6   6-character solution
+      └── SlidingCaptcha   offset  -4  →  effective  6   sliding puzzle
 ```
 
 | Type                    | Class                  | Offset | Solved by    | GPU-resistant |
@@ -331,6 +335,7 @@ difficulty=10 (policy setting)
 | `sha256-balloon`        | `SHA256Balloon`        | +0     | browser JS   | ✓             |
 | `sha256`                | `SHA256`               | +6     | browser JS   | ✗             |
 | `character-captcha`     | `CharacterCaptcha`     | -4     | human        | ✓             |
+| `sliding-captcha`       | `SlidingCaptcha`       | -4     | human        | ✓             |
 | `navigator-attestation` | `NavigatorAttestation` | +0     | browser (WS) | ✓             |
 
 ### SHA256Balloon & SHA256
@@ -407,7 +412,7 @@ score = request.state.tollbooth.score
 score = req.context.tollbooth.score
 ```
 
-The claims object also exposes `iat`, `exp`, `ip`, and `cid` as attributes. `score` is `None` for PoW challenges (SHA256Balloon / SHA256 / CharacterCaptcha) — only `NavigatorAttestation` embeds it.
+The claims object also exposes `iat`, `exp`, `ip`, and `cid` as attributes. `score` is `None` for PoW challenges (SHA256Balloon / SHA256 / CharacterCaptcha / SlidingCaptcha) — only `NavigatorAttestation` embeds it.
 
 ### Character CAPTCHA
 
@@ -433,6 +438,28 @@ app = TollboothWSGI(
 ```
 
 System fonts are detected automatically from common OS directories. Only fonts from known Latin families (DejaVu, Fira, Liberation, Ubuntu, etc.) are used. Background images are optional — falls back to a solid fill.
+
+### Sliding CAPTCHA
+
+Human-solved drag-and-drop challenge. Renders a decorative background (wavy lines, concentric circles, 3D wireframe shapes, noise) then cuts out a rectangular puzzle piece, leaving a dark outlined hole. The user slides the piece to fill the hole using an `<input type="range">`. The correct position is HMAC-encrypted in the challenge token — never stored in plaintext. Verification accepts ±15 px tolerance (tightens by 1 px per difficulty level, minimum 5 px). Requires `Pillow`:
+
+```bash
+pip install tollbooth[image]
+```
+
+#### Setup
+
+```python
+from tollbooth import SlidingCaptcha, TollboothWSGI
+
+app = TollboothWSGI(
+    app,
+    secret="your-secret-key",
+    challenge_handler=SlidingCaptcha(
+        token_ttl=1800,  # solution token lifetime in seconds
+    ),
+)
+```
 
 ### Difficulty reference
 

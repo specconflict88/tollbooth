@@ -5,6 +5,7 @@ from .challenges import (
     CharacterCaptcha,
     NavigatorAttestation,
     SHA256Balloon,
+    SlidingCaptcha,
 )
 from .engine import (
     Engine,
@@ -35,6 +36,7 @@ __all__ = [
     "Rule",
     "SHA256",
     "SHA256Balloon",
+    "SlidingCaptcha",
     "load_policy",
     "jwt_encode",
     "jwt_decode",

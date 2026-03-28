@@ -80,11 +80,6 @@
         "user_agent": "(?i:archive\\.org_bot|Wayback)"
     },
     {
-        "name": "ip-blocklist",
-        "action": "CHALLENGE",
-        "blocklist": true
-    },
-    {
         "name": "ai-bots",
         "action": "CHALLENGE",
         "difficulty": 14,
@@ -111,6 +106,11 @@
         "name": "generic-browser",
         "action": "CHALLENGE",
         "user_agent": "Mozilla"
+    },
+    {
+        "name": "ip-blocklist",
+        "action": "CHALLENGE",
+        "blocklist": true
     },
     {
         "name": "curl-wget",

@@ -91,7 +91,7 @@ class TollboothBase:
         if cookie:
             claims = self.engine.check_cookie(cookie, request)
             if claims and self.engine.check_token_limit(claims["cid"]):
-                request["_claims"] = types.SimpleNamespace(score=None, **claims)
+                request["_claims"] = types.SimpleNamespace(**{"score": None, **claims})
                 return None
 
         action, difficulty = self.engine.policy.evaluate(
