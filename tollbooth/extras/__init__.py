@@ -1,3 +1,4 @@
+from .error_handler import ErrorHandler
 from .rate_limiter import RateLimiter
 from .third_party_captcha import (
     AltchaCreds,
@@ -10,6 +11,7 @@ from .third_party_captcha import (
 )
 
 __all__ = [
+    "ErrorHandler",
     "RateLimiter",
     "ThirdPartyCaptcha",
     "CaptchaCreds",

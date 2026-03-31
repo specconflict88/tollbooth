@@ -1098,6 +1098,82 @@ GeeTest requires four hidden fields populated by the JS callback (`geetest_lotNu
 
 The embed loads Arkose's enforcement script dynamically, using the site key as the script path segment. The completed token is written to a hidden `fc-token` field.
 
+## Error Handler
+
+`ErrorHandler` in `tollbooth.extras.error_handler` renders themed HTML error pages for
+30 HTTP error codes (400–505) across all supported frameworks. It works independently of
+tollbooth's challenge engine and matches the built-in challenge page look (light/dark,
+accent color).
+
+```python
+from tollbooth.extras import ErrorHandler
+
+eh = ErrorHandler()
+```
+
+Templates use `{{key}}` placeholders: `{{status_code}}`, `{{title}}`, `{{description}}`,
+`{{ACCENT_COLOR}}`, plus any extra kwargs passed to `render()`. Both the global template
+and per-status templates accept a string or a `Path`.
+
+```python
+from pathlib import Path
+
+eh = ErrorHandler(
+    template=Path("templates/error.html"),              # or inline string
+    templates={404: Path("templates/404.html")},        # per-status override
+    overrides={404: {"title": "Oops", "description": "We lost that page."}},
+    codes={400, 403, 404, 500},                         # limit handled codes
+    accent_color="#ff6600",                           # explicit accent
+    tollbooth=tb,                                       # inherit accent from Tollbooth
+)
+
+body = eh.render(404)                                   # render manually
+body = eh.render(404, path="/missing")                  # extra template vars
+```
+
+When used alongside a Tollbooth Flask integration, `init_flask` automatically inherits
+the accent color from the registered Tollbooth instance — no extra configuration needed.
+
+### Flask
+
+```python
+tb = Tollbooth(app)        # registers accent color in app.extensions
+eh = ErrorHandler()
+eh.init_flask(app)         # picks up accent color automatically
+```
+
+### Django
+
+```python
+# settings.py
+ErrorPageMiddleware = eh.as_django_middleware()
+MIDDLEWARE = ["myapp.middleware.ErrorPageMiddleware", ...]
+```
+
+### Falcon
+
+```python
+eh.init_falcon(app)
+```
+
+### FastAPI / Starlette
+
+```python
+eh.init_starlette(app)
+```
+
+### Raw WSGI
+
+```python
+app = eh.wsgi_middleware(app)
+```
+
+### Raw ASGI
+
+```python
+app = eh.asgi_middleware(app)
+```
+
 ## Standalone Rate Limiter
 
 `RateLimiter` in `tollbooth.extras.rate_limiter` provides per-IP rate limiting with human-readable limit strings and per-route decorators. It works independently of tollbooth's challenge engine and supports all the same frameworks.

@@ -1,6 +1,6 @@
 [project]
 name = "tollbooth"
-version = "0.3.6.1"
+version = "0.3.6.2"
 description = "A bot-challenge Python middleware issuing brief challenges, granting solvers signed access cookies."
 readme = "README.md"
 license = "MIT"
@@ -48,6 +48,7 @@ include = ["tollbooth*"]
 [tool.setuptools.package-data]
 tollbooth = ["rules.json"]
 "tollbooth.challenges" = ["templates/*.html"]
+"tollbooth.extras" = ["templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
