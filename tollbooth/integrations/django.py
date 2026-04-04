@@ -4,6 +4,7 @@ from typing import Unpack
 from django.http import HttpResponse
 from django.urls import Resolver404, resolve
 
+from ..engine import Policy, Rule
 from .base import TollboothBase, TollboothKwargs, resolve_base
 
 
@@ -122,6 +123,54 @@ def tollbooth_protect(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
             if result:
                 return _to_response(result)
             request.tollbooth = req.get("_claims")
+            return view(request, *args, **kw)
+
+        return wrapper
+
+    return decorator
+
+
+def tollbooth_challenge(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(request, *args, **kw):
+            req = _to_request(request)
+            override = TollboothBase(engine=tb.engine)
+            override.engine.policy = Policy(
+                rules=[Rule(name="always_challenge", action="challenge")],
+                challenge_handler=tb.engine.policy.challenge_handler,
+                cookie_name=tb.engine.policy.cookie_name,
+                verify_path=tb.engine.policy.verify_path,
+                cookie_ttl=tb.engine.policy.cookie_ttl,
+                challenge_ttl=tb.engine.policy.challenge_ttl,
+            )
+            result = override.process_request(req)
+            if result:
+                return _to_response(result)
+            request.tollbooth = req.get("_claims")
+            return view(request, *args, **kw)
+
+        return wrapper
+
+    return decorator
+
+
+def tollbooth_block(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(request, *args, **kw):
+            req = _to_request(request)
+            result = tb.process_request(req)
+            if result:
+                return _to_response(result)
+            claims = req.get("_claims")
+            request.tollbooth = claims
+            if claims and claims.is_crawler:
+                return _to_response(tb._deny(tb._is_json(req)))
             return view(request, *args, **kw)
 
         return wrapper

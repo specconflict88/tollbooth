@@ -109,6 +109,9 @@ app = TollboothWSGI(app, secret="key", challenge_handler=CharacterCaptcha())
     - [Reusing an engine across integrations](#reusing-an-engine-across-integrations)
     - [JSON mode](#json-mode)
 - [Reading claims](#reading-claims)
+- [CSRF Protection](#csrf-protection)
+- [Client Fingerprinting](#client-fingerprinting)
+- [Route Protection Decorators](#route-protection-decorators)
 - [IP Blocklist](#ip-blocklist)
     - [In-memory](#in-memory)
     - [Redis-backed](#redis-backed)
@@ -817,15 +820,15 @@ Path-specific rules — protect `/admin` hard, leave everything else on defaults
 
 All framework integrations accept the same keyword arguments as `TollboothWSGI`/`TollboothASGI`. Flask and Django use the framework's `SECRET_KEY` by default — no separate secret needed.
 
-| Integration   | Import                             | Middleware class      | Per-route            | Exempt              | Auto secret  |
-| ------------- | ---------------------------------- | --------------------- | -------------------- | ------------------- | ------------ |
-| **Flask**     | `tollbooth.integrations.flask`     | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        | `SECRET_KEY` |
-| **Django**    | `tollbooth.integrations.django`    | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` | `SECRET_KEY` |
-| **FastAPI**   | `tollbooth.integrations.fastapi`   | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     | —            |
-| **Falcon**    | `tollbooth.integrations.falcon`    | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     | —            |
-| **Starlette** | `tollbooth.integrations.starlette` | `TollboothMiddleware` | —                    | `exclude=[...]`     | —            |
-| **WSGI**      | `tollbooth`                        | `TollboothWSGI`       | —                    | —                   | —            |
-| **ASGI**      | `tollbooth`                        | `TollboothASGI`       | —                    | —                   | —            |
+| Integration   | Import                             | Middleware class      | Per-route            | Exempt              | Challenge                  | Block                  | Auto secret  |
+| ------------- | ---------------------------------- | --------------------- | -------------------- | ------------------- | -------------------------- | ---------------------- | ------------ |
+| **Flask**     | `tollbooth.integrations.flask`     | `Tollbooth(app)`      | `@tb.protect`        | `@tb.exempt`        | `@tb.challenge`            | `@tb.block`            | `SECRET_KEY` |
+| **Django**    | `tollbooth.integrations.django`    | `TollboothMiddleware` | `@tollbooth_protect` | `@tollbooth_exempt` | `@tollbooth_challenge`     | `@tollbooth_block`     | `SECRET_KEY` |
+| **FastAPI**   | `tollbooth.integrations.fastapi`   | `TollboothMiddleware` | `TollboothDep`       | `exclude=[...]`     | `TollboothChallengeDep`    | `TollboothBlockDep`    | —            |
+| **Falcon**    | `tollbooth.integrations.falcon`    | `TollboothMiddleware` | `tollbooth_hook`     | `exclude=[...]`     | `tollbooth_challenge_hook` | `tollbooth_block_hook` | —            |
+| **Starlette** | `tollbooth.integrations.starlette` | `TollboothMiddleware` | —                    | `exclude=[...]`     | —                          | —                      | —            |
+| **WSGI**      | `tollbooth`                        | `TollboothWSGI`       | —                    | —                   | —                          | —                      | —            |
+| **ASGI**      | `tollbooth`                        | `TollboothASGI`       | —                    | —                   | —                          | —                      | —            |
 
 ### Reusing an engine across integrations
 
@@ -921,6 +924,8 @@ When a request passes (valid cookie, allow rule, or after solving a challenge), 
 | `exp`             | `int`           | Expiry timestamp                                                                     |
 | `ip`              | `str`           | HMAC of the client IP                                                                |
 | `cid`             | `str`           | Challenge ID                                                                         |
+| `fid`             | `str`           | Client fingerprint ID (IP + UA + TLS + headers)                                      |
+| `client_id`       | `str`           | Server-side client fingerprint (same as `fid`, always computed fresh)                |
 | `matched_rule`    | `str \| None`   | Name of the `deny` or `challenge` rule that matched; `None` for allow / weight-based |
 | `blocklist_match` | `str \| None`   | IP range from the blocklist (e.g. `"1.2.0.0/16"`) when a blocklist rule matched      |
 | `is_crawler`      | `bool`          | `True` if the user-agent is a known crawler (requires `crawleruseragents`)           |
@@ -949,6 +954,148 @@ print(claims.matched_rule, claims.is_crawler, claims.crawler_name)
 
 ```bash
 pip install crawleruseragents
+```
+
+## CSRF Protection
+
+All challenge forms include a stateless CSRF token signed with the secret key. The token is bound to the challenge ID, client IP, and creation time — no server-side storage needed. Tokens expire after 30 minutes (`CSRF_TTL`). Verification rejects submissions with missing, expired, or tampered tokens.
+
+The CSRF token is automatically embedded in all challenge templates (both HTML form-based and JavaScript-created forms) as a `csrf_token` hidden field. JSON mode responses include it as `csrfToken` in the challenge payload.
+
+## Client Fingerprinting
+
+Every request gets a deterministic `client_id` computed server-side from:
+
+- Client IP address
+- User-Agent header
+- Accept-Language and Accept-Encoding headers
+- Client Hints (`Sec-Ch-Ua`, `Sec-Ch-Ua-Platform`)
+- TLS metadata (`X-Tls-Version`, `X-Tls-Cipher` — set by reverse proxy)
+
+The fingerprint is HMAC-signed with the secret key, producing a stable 32-character hex ID. It is stored as `fid` in the JWT cookie and available as `client_id` on the claims object. To pass TLS metadata, configure your reverse proxy to forward TLS info as headers:
+
+```nginx
+# nginx example
+proxy_set_header X-Tls-Version $ssl_protocol;
+proxy_set_header X-Tls-Cipher  $ssl_cipher;
+```
+
+## Route Protection Decorators
+
+Per-route decorators override specific rule parameters for individual endpoints.
+
+| Decorator       | Effect                                            |
+| --------------- | ------------------------------------------------- |
+| `@tb.challenge` | Always require a challenge (ignores policy rules) |
+| `@tb.block`     | Deny access to detected bots (403 for crawlers)   |
+| `@tb.exempt`    | Skip all tollbooth checks                         |
+
+### Flask
+
+```python
+from tollbooth.integrations.flask import Tollbooth
+
+app = Flask(__name__)
+tb = Tollbooth(app, secret="key")
+
+@tb.challenge
+@app.route("/sensitive")
+def sensitive():
+    return "Always challenged"
+
+@tb.block
+@app.route("/no-bots")
+def no_bots():
+    return "Bots get 403"
+
+@tb.exempt
+@app.route("/health")
+def health():
+    return "ok"
+```
+
+Standalone decorators (without middleware):
+
+```python
+from tollbooth.integrations.flask import (
+    tollbooth_challenge, tollbooth_block
+)
+
+tb = TollboothBase(secret="key")
+
+@tollbooth_challenge(tb)
+@app.route("/api/data")
+def api_data():
+    return jsonify({"rows": []})
+
+@tollbooth_block(tb)
+@app.route("/api/protected")
+def protected():
+    return jsonify({"ok": True})
+```
+
+### Django
+
+```python
+from tollbooth.integrations.django import (
+    tollbooth_challenge, tollbooth_block, tollbooth_exempt
+)
+
+tb = TollboothBase(secret="key")
+
+@tollbooth_challenge(tb)
+def sensitive_view(request):
+    return HttpResponse("Always challenged")
+
+@tollbooth_block(tb)
+def no_bots_view(request):
+    return HttpResponse("Bots get 403")
+
+@tollbooth_exempt
+def health(request):
+    return HttpResponse("ok")
+```
+
+### FastAPI
+
+```python
+from fastapi import Depends
+from tollbooth.integrations.fastapi import (
+    TollboothChallengeDep, TollboothBlockDep
+)
+
+challenge = TollboothChallengeDep("key")
+block = TollboothBlockDep("key")
+
+@app.get("/sensitive", dependencies=[Depends(challenge)])
+def sensitive():
+    return {"always": "challenged"}
+
+@app.get("/no-bots", dependencies=[Depends(block)])
+def no_bots():
+    return {"bots": "blocked"}
+```
+
+### Falcon
+
+```python
+import falcon
+from tollbooth.integrations.falcon import (
+    tollbooth_challenge_hook, tollbooth_block_hook
+)
+
+challenge = tollbooth_challenge_hook("key")
+block = tollbooth_block_hook("key")
+
+class SensitiveResource:
+    @falcon.before(challenge)
+    def on_get(self, req, resp):
+        resp.media = {"always": "challenged"}
+
+class NoBots:
+    @falcon.before(block)
+    def on_get(self, req, resp):
+        resp.media = {"bots": "blocked"}
 ```
 
 ## IP Blocklist

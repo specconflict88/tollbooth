@@ -3,6 +3,7 @@ from typing import Unpack
 
 import flask
 
+from ..engine import Policy, Rule
 from .base import TollboothBase, TollboothKwargs, resolve_base
 
 _PREFIX = "TOLLBOOTH_"
@@ -106,6 +107,47 @@ class Tollbooth:
 
         return wrapper
 
+    def challenge(self, view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            req = _to_request()
+            tb = TollboothBase(
+                engine=self.tb.engine,
+                json_mode=self.tb._json_mode,
+            )
+            tb.engine.policy = Policy(
+                rules=[Rule(name="always_challenge", action="challenge")],
+                challenge_handler=self.tb.engine.policy.challenge_handler,
+                cookie_name=self.tb.engine.policy.cookie_name,
+                verify_path=self.tb.engine.policy.verify_path,
+                cookie_ttl=self.tb.engine.policy.cookie_ttl,
+                challenge_ttl=self.tb.engine.policy.challenge_ttl,
+            )
+            result = tb.process_request(req)
+            if result:
+                return _to_response(result)
+            flask.g.tollbooth = req.get("_claims")
+            return view(*args, **kwargs)
+
+        return wrapper
+
+    def block(self, view):
+        view._tollbooth_block = True
+
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            req = _to_request()
+            result = self.tb.process_request(req)
+            if result:
+                return _to_response(result)
+            claims = req.get("_claims")
+            flask.g.tollbooth = claims
+            if claims and claims.is_crawler:
+                return _to_response(self.tb._deny(self.tb._is_json(req)))
+            return view(*args, **kwargs)
+
+        return wrapper
+
     def mount_verify(self, app):
         @app.route(
             self.tb.verify_path,
@@ -130,6 +172,54 @@ def tollbooth_protect(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
             if result:
                 return _to_response(result)
             flask.g.tollbooth = req.get("_claims")
+            return view(*args, **kw)
+
+        return wrapper
+
+    return decorator
+
+
+def tollbooth_challenge(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kw):
+            req = _to_request()
+            override = TollboothBase(engine=tb.engine)
+            override.engine.policy = Policy(
+                rules=[Rule(name="always_challenge", action="challenge")],
+                challenge_handler=tb.engine.policy.challenge_handler,
+                cookie_name=tb.engine.policy.cookie_name,
+                verify_path=tb.engine.policy.verify_path,
+                cookie_ttl=tb.engine.policy.cookie_ttl,
+                challenge_ttl=tb.engine.policy.challenge_ttl,
+            )
+            result = override.process_request(req)
+            if result:
+                return _to_response(result)
+            flask.g.tollbooth = req.get("_claims")
+            return view(*args, **kw)
+
+        return wrapper
+
+    return decorator
+
+
+def tollbooth_block(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kw):
+            req = _to_request()
+            result = tb.process_request(req)
+            if result:
+                return _to_response(result)
+            claims = req.get("_claims")
+            flask.g.tollbooth = claims
+            if claims and claims.is_crawler:
+                return _to_response(tb._deny(tb._is_json(req)))
             return view(*args, **kw)
 
         return wrapper

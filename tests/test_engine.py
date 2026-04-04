@@ -553,8 +553,150 @@ class TestEngine:
         self,
     ) -> None:
         engine = self.make_engine()
-        challenge = engine.issue_challenge(4, make_request())
-        html = engine.render_challenge(challenge, "/")
+        req = make_request()
+        challenge = engine.issue_challenge(4, req)
+        html = engine.render_challenge(challenge, "/", req)
         assert challenge.id in html
         assert challenge.random_data in html
         assert '"difficulty": 4' in html
+
+
+class TestCSRF:
+    def make_engine(self):
+        return Engine(
+            SECRET,
+            policy=Policy(rules=[Rule(name="all", action="challenge", difficulty=1)]),
+        )
+
+    def test_csrf_roundtrip(self):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+        token = engine.generate_csrf_token(challenge.id, req)
+        assert engine.validate_csrf_token(token, challenge.id, req)
+
+    def test_csrf_wrong_challenge_id(self):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+        token = engine.generate_csrf_token(challenge.id, req)
+        assert not engine.validate_csrf_token(token, "wrong-id", req)
+
+    def test_csrf_wrong_ip(self):
+        engine = self.make_engine()
+        req1 = make_request(remote_addr="1.2.3.4")
+        req2 = make_request(remote_addr="5.6.7.8")
+        challenge = engine.issue_challenge(1, req1)
+        token = engine.generate_csrf_token(challenge.id, req1)
+        assert not engine.validate_csrf_token(token, challenge.id, req2)
+
+    def test_csrf_expired(self, monkeypatch):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+
+        original_time = time.time()
+        monkeypatch.setattr(time, "time", lambda: original_time)
+        token = engine.generate_csrf_token(challenge.id, req)
+
+        monkeypatch.setattr(time, "time", lambda: original_time + 1801)
+        assert not engine.validate_csrf_token(token, challenge.id, req)
+
+    def test_csrf_in_rendered_challenge(self):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+        html = engine.render_challenge(challenge, "/", req)
+        assert "csrfToken" in html
+
+    def test_csrf_in_form_validation(self):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+        csrf = engine.generate_csrf_token(challenge.id, req)
+
+        handler = engine.policy.challenge_handler
+        for nonce in range(200_000):
+            result = _balloon(
+                challenge.random_data,
+                nonce,
+                handler.space_cost,
+                handler.time_cost,
+                handler.delta,
+            )
+            if _count_leading_zero_bits(result) >= 1:
+                token = engine.validate_challenge(
+                    challenge.id,
+                    str(nonce),
+                    req,
+                    csrf,
+                )
+                assert token is not None
+                return
+        raise RuntimeError("failed to solve")
+
+    def test_csrf_invalid_token_rejects(self):
+        engine = self.make_engine()
+        req = make_request()
+        challenge = engine.issue_challenge(1, req)
+
+        handler = engine.policy.challenge_handler
+        for nonce in range(200_000):
+            result = _balloon(
+                challenge.random_data,
+                nonce,
+                handler.space_cost,
+                handler.time_cost,
+                handler.delta,
+            )
+            if _count_leading_zero_bits(result) >= 1:
+                token = engine.validate_challenge(
+                    challenge.id,
+                    str(nonce),
+                    req,
+                    "invalid-csrf-token",
+                )
+                assert token is None
+                return
+        raise RuntimeError("failed to solve")
+
+
+class TestClientID:
+    def make_engine(self):
+        return Engine(
+            SECRET,
+            policy=Policy(rules=[Rule(name="all", action="challenge")]),
+        )
+
+    def test_same_request_same_id(self):
+        engine = self.make_engine()
+        req = make_request()
+        id1 = engine.generate_client_id(req)
+        id2 = engine.generate_client_id(req)
+        assert id1 == id2
+
+    def test_different_ip_different_id(self):
+        engine = self.make_engine()
+        req1 = make_request(remote_addr="1.2.3.4")
+        req2 = make_request(remote_addr="5.6.7.8")
+        assert engine.generate_client_id(req1) != engine.generate_client_id(req2)
+
+    def test_different_ua_different_id(self):
+        engine = self.make_engine()
+        req1 = make_request(user_agent="Firefox")
+        req2 = make_request(user_agent="Chrome")
+        assert engine.generate_client_id(req1) != engine.generate_client_id(req2)
+
+    def test_client_id_length(self):
+        engine = self.make_engine()
+        cid = engine.generate_client_id(make_request())
+        assert len(cid) == 32
+
+    def test_client_id_in_jwt_claims(self):
+        engine = self.make_engine()
+        req = make_request()
+        cid, nonce = solve_challenge(engine, req)
+        token = engine.validate_challenge(cid, nonce, req)
+        assert token is not None
+        claims = jwt_decode(token, engine.secret)
+        assert "fid" in claims

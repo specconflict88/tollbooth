@@ -41,6 +41,8 @@ TOKEN_RATE_WINDOW = 60
 TOKEN_RATE_LIMIT = 120
 TOKEN_TOTAL_LIMIT = 3000
 
+CSRF_TTL = 1800
+
 BRANDING = True
 ACCENT_COLOR = "#44ff88"
 
@@ -449,6 +451,78 @@ class Engine:
     def _hash_ip(self, ip: str) -> str:
         return self._hmac(ip.encode()).hex()[:16]
 
+    def generate_csrf_token(
+        self,
+        challenge_id: str,
+        request: Request,
+    ) -> str:
+        now = int(time.time())
+        payload = f"{challenge_id}:{now}:{self._hash_ip(request['remote_addr'])}"
+        sig = self._hmac(f"csrf:{payload}".encode())
+        return _b64url_encode(f"{payload}:{_b64url_encode(sig)}".encode())
+
+    def validate_csrf_token(
+        self,
+        token: str,
+        challenge_id: str,
+        request: Request,
+    ) -> bool:
+        try:
+            decoded = _b64url_decode(token).decode()
+            parts = decoded.rsplit(":", 1)
+            if len(parts) != 2:
+                return False
+
+            payload, sig_b64 = parts
+            expected = self._hmac(f"csrf:{payload}".encode())
+            if not hmac.compare_digest(_b64url_decode(sig_b64), expected):
+                return False
+
+            fields = payload.split(":")
+            if len(fields) != 3:
+                return False
+
+            token_cid, token_time, token_ip = fields
+            if token_cid != challenge_id:
+                return False
+
+            if not hmac.compare_digest(token_ip, self._hash_ip(request["remote_addr"])):
+                return False
+
+            issued = int(token_time)
+            if time.time() - issued > CSRF_TTL:
+                return False
+
+            return True
+        except (ValueError, UnicodeDecodeError):
+            return False
+
+    def generate_client_id(self, request: Request) -> str:
+        parts = [
+            request["remote_addr"],
+            request["user_agent"],
+            request["headers"].get("Accept-Language", ""),
+            request["headers"].get("Accept-Encoding", ""),
+            request["headers"].get(
+                "Sec-Ch-Ua", request["headers"].get("sec-ch-ua", "")
+            ),
+            request["headers"].get(
+                "Sec-Ch-Ua-Platform",
+                request["headers"].get("sec-ch-ua-platform", ""),
+            ),
+        ]
+        tls_version = request["headers"].get(
+            "X-Tls-Version",
+            request["headers"].get("x-tls-version", ""),
+        )
+        tls_cipher = request["headers"].get(
+            "X-Tls-Cipher",
+            request["headers"].get("x-tls-cipher", ""),
+        )
+        parts.extend([tls_version, tls_cipher])
+        raw = "|".join(parts)
+        return self._hmac(f"client_id:{raw}".encode()).hex()[:32]
+
     def check_cookie(
         self,
         cookie_value: str,
@@ -501,7 +575,13 @@ class Engine:
         challenge_id,
         nonce,
         request,
+        csrf_token=None,
     ) -> str | None:
+        if csrf_token and not self.validate_csrf_token(
+            csrf_token, challenge_id, request
+        ):
+            return None
+
         challenge = self.store.get(challenge_id)
         if not challenge or challenge.spent:
             return None
@@ -537,6 +617,7 @@ class Engine:
             "exp": int(now + self.policy.cookie_ttl),
             "ip": self._hash_ip(request["remote_addr"]),
             "cid": challenge_id,
+            "fid": self.generate_client_id(request),
         }
         meta = {**(extra or {}), "remote_addr": request["remote_addr"]}
         claims["_m"] = _meta_encrypt(meta, self.secret)
@@ -557,12 +638,15 @@ class Engine:
         self,
         challenge: ChallengeBase,
         redirect_to: str,
+        request: Request,
         error: str = "",
     ) -> str:
         handler = self.policy.challenge_handler
         payload_dict = handler.render_payload(
             challenge, self.policy.verify_path, redirect_to
         )
+        csrf_token = self.generate_csrf_token(challenge.id, request)
+        payload_dict["csrfToken"] = csrf_token
         payload = json.dumps(payload_dict)
         branding = self._BRANDING if self.policy.branding else ""
 
@@ -619,7 +703,7 @@ class Engine:
             return "deny", 403, {"Content-Type": "text/plain"}, "Too Many Requests"
 
         challenge = self.issue_challenge(difficulty, request)
-        body = self.render_challenge(challenge, request["path"])
+        body = self.render_challenge(challenge, request["path"], request)
         return "challenge", 200, _challenge_headers(self.policy.challenge_handler), body
 
     def handle_verify(
@@ -630,7 +714,8 @@ class Engine:
         nonce = form.get("nonce") or ",".join(
             filter(None, [form.get("nonce.x", ""), form.get("nonce.y", "")])
         )
-        token = self.validate_challenge(form.get("id", ""), nonce, request)
+        csrf_token = form.get("csrf_token", "")
+        token = self.validate_challenge(form.get("id", ""), nonce, request, csrf_token)
 
         if not token:
             ip_hash = self._hash_ip(request["remote_addr"])
@@ -649,6 +734,7 @@ class Engine:
                 body = self.render_challenge(
                     challenge,
                     redirect,
+                    request,
                     error='<p class="error">Incorrect \u2014 try again.</p>',
                 )
                 return 200, _challenge_headers(self.policy.challenge_handler), body

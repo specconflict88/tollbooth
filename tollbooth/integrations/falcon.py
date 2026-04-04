@@ -1,6 +1,7 @@
 from typing import Unpack
 from urllib.parse import parse_qs
 
+from ..engine import Policy, Rule
 from .base import TollboothBase, TollboothKwargs, resolve_base
 
 
@@ -113,5 +114,45 @@ def tollbooth_hook(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
             _apply(result, resp)
         else:
             req.context.tollbooth = request.get("_claims")
+
+    return hook
+
+
+def tollbooth_challenge_hook(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def hook(req, resp, resource, params):
+        request = _to_request(req)
+        override = TollboothBase(engine=tb.engine)
+        override.engine.policy = Policy(
+            rules=[Rule(name="always_challenge", action="challenge")],
+            challenge_handler=tb.engine.policy.challenge_handler,
+            cookie_name=tb.engine.policy.cookie_name,
+            verify_path=tb.engine.policy.verify_path,
+            cookie_ttl=tb.engine.policy.cookie_ttl,
+            challenge_ttl=tb.engine.policy.challenge_ttl,
+        )
+        result = override.process_request(request)
+        if result:
+            _apply(result, resp)
+        else:
+            req.context.tollbooth = request.get("_claims")
+
+    return hook
+
+
+def tollbooth_block_hook(tb_or_secret, **kwargs: Unpack[TollboothKwargs]):
+    tb = resolve_base(tb_or_secret, kwargs)
+
+    def hook(req, resp, resource, params):
+        request = _to_request(req)
+        result = tb.process_request(request)
+        if result:
+            _apply(result, resp)
+            return
+        claims = request.get("_claims")
+        req.context.tollbooth = claims
+        if claims and claims.is_crawler:
+            _apply(tb._deny(tb._is_json(request)), resp)
 
     return hook

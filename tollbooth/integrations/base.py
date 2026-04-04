@@ -110,6 +110,7 @@ class TollboothBase:
             claims = self.engine.check_cookie(cookie, request)
             if claims and self.engine.check_token_limit(claims["cid"]):
                 is_crawler, crawler_name = self._crawler_fields(request["user_agent"])
+                client_id = self.engine.generate_client_id(request)
                 request["_claims"] = types.SimpleNamespace(
                     **{
                         "score": None,
@@ -117,6 +118,7 @@ class TollboothBase:
                         "blocklist_match": None,
                         "is_crawler": is_crawler,
                         "crawler_name": crawler_name,
+                        "client_id": client_id,
                         **claims,
                     }
                 )
@@ -134,12 +136,14 @@ class TollboothBase:
                 if matched_rule and matched_rule.blocklist
                 else None
             )
+            client_id = self.engine.generate_client_id(request)
             request["_claims"] = types.SimpleNamespace(
                 score=None,
                 matched_rule=matched_rule.name if matched_rule else None,
                 blocklist_match=bl_match,
                 is_crawler=is_crawler,
                 crawler_name=crawler_name,
+                client_id=client_id,
             )
             return None
 
@@ -180,10 +184,12 @@ class TollboothBase:
         if use_json:
             handler = self.engine.policy.challenge_handler
             payload = handler.render_payload(challenge, self.verify_path, path)
+            csrf_token = self.engine.generate_csrf_token(challenge.id, request)
+            payload["csrfToken"] = csrf_token
             body = json.dumps({"challenge": payload})
             return Response(200, dict(_JSON_CT), body)
 
-        body = self.engine.render_challenge(challenge, path)
+        body = self.engine.render_challenge(challenge, path, request)
         return Response(
             200, _challenge_headers(self.engine.policy.challenge_handler), body
         )
@@ -193,7 +199,10 @@ class TollboothBase:
         nonce = form.get("nonce") or ",".join(
             filter(None, [form.get("nonce.x", ""), form.get("nonce.y", "")])
         )
-        token = self.engine.validate_challenge(form.get("id", ""), nonce, request)
+        csrf_token = form.get("csrf_token", "")
+        token = self.engine.validate_challenge(
+            form.get("id", ""), nonce, request, csrf_token
+        )
         use_json = self._is_json(request)
 
         if not token:
@@ -221,6 +230,7 @@ class TollboothBase:
                 body = self.engine.render_challenge(
                     challenge,
                     redirect,
+                    request,
                     error='<p class="error">Incorrect \u2014 try again.</p>',
                 )
                 return Response(
