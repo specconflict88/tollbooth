@@ -5,6 +5,7 @@ from .circle_captcha import CircleCaptcha
 from .image_captcha import ImageCaptcha
 from .image_grid_captcha import ImageGridCaptcha
 from .navigator_attestation import NavigatorAttestation, validate_signals
+from .rotation_captcha import RotationCaptcha
 from .sha256 import SHA256
 from .sha256_balloon import SHA256Balloon
 from .sliding_captcha import SlidingCaptcha
@@ -21,6 +22,7 @@ __all__ = [
     "ImageCaptcha",
     "ImageGridCaptcha",
     "NavigatorAttestation",
+    "RotationCaptcha",
     "SHA256Balloon",
     "SHA256",
     "SlidingCaptcha",

@@ -15,6 +15,7 @@ class ChallengeType(str, Enum):
     IMAGE_CAPTCHA = "image-captcha"
     IMAGE_GRID_CAPTCHA = "image-grid-captcha"
     AUDIO_CAPTCHA = "audio-captcha"
+    ROTATION_CAPTCHA = "rotation-captcha"
 
 
 DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
@@ -28,6 +29,7 @@ DIFFICULTY_OFFSETS: dict[ChallengeType, int] = {
     ChallengeType.IMAGE_CAPTCHA: -4,
     ChallengeType.IMAGE_GRID_CAPTCHA: -4,
     ChallengeType.AUDIO_CAPTCHA: -4,
+    ChallengeType.ROTATION_CAPTCHA: -4,
 }
 
 

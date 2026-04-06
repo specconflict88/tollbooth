@@ -96,8 +96,10 @@ app = TollboothWSGI(app, secret="key", challenge_handler=CharacterCaptcha())
         - [Setup](#setup-4)
     - [Audio CAPTCHA](#audio-captcha)
         - [Setup](#setup-5)
-    - [Third-party CAPTCHA challenge](#third-party-captcha-challenge)
+    - [Rotation CAPTCHA](#rotation-captcha)
         - [Setup](#setup-6)
+    - [Third-party CAPTCHA challenge](#third-party-captcha-challenge)
+        - [Setup](#setup-7)
     - [Difficulty reference](#difficulty-reference)
 - [Configuration](#configuration)
 - [Rules](#rules)
@@ -149,6 +151,7 @@ examples/
     image_captcha.py          # Image selection CAPTCHA  (requires Pillow)
     image_grid_captcha.py     # Image grid CAPTCHA  (requires Pillow)
     audio_captcha.py          # Audio CAPTCHA  (requires numpy, scipy)
+    rotation_captcha.py       # 3D rotation CAPTCHA  (requires Pillow)
     navigator_attestation.py  # Browser fingerprinting
     third_party_captcha.py    # Third-party CAPTCHA (pass provider as first arg)
 ```
@@ -164,6 +167,7 @@ pip install tollbooth[falcon]    # Falcon
 pip install tollbooth[starlette] # Starlette
 pip install tollbooth[redis]     # Redis backend
 pip install tollbooth[image]     # Character / Sliding / Image / Image Grid CAPTCHA (Pillow)
+pip install tollbooth[rotation]  # Rotation CAPTCHA (Pillow, numpy)
 pip install tollbooth[audio]     # Audio CAPTCHA (numpy, scipy)
 ```
 
@@ -389,6 +393,7 @@ difficulty=10 (policy setting)
 | `image-captcha`         | `ImageCaptcha`         | -4     | human        | ✓             |
 | `image-grid-captcha`    | `ImageGridCaptcha`     | -4     | human        | ✓             |
 | `audio-captcha`         | `AudioCaptcha`         | -4     | human        | ✓             |
+| `rotation-captcha`      | `RotationCaptcha`      | -4     | human        | ✓             |
 | `navigator-attestation` | `NavigatorAttestation` | +0     | browser (WS) | ✓             |
 
 ### SHA256Balloon & SHA256
@@ -587,6 +592,34 @@ app = TollboothWSGI(
     ),
 )
 ```
+
+### Rotation CAPTCHA
+
+Human-solved 3D orientation challenge. Renders a 3D object (loaded from a GLTF mesh) from two angles: a reference image showing the correct orientation and a sprite sheet of candidate views. The user clicks the image that matches the reference orientation. The correct index is HMAC-encrypted in the challenge token. The number of choices is configurable (`choice_count`, default 6). Requires `Pillow` and `numpy`:
+
+```bash
+pip install tollbooth[roration]
+```
+
+#### Setup
+
+```python
+from tollbooth import RotationCaptcha, TollboothWSGI
+
+app = TollboothWSGI(
+    app,
+    secret="your-secret-key",
+    challenge_handler=RotationCaptcha(
+        choice_count=6,   # number of candidate orientations shown
+        image_size=300,   # pixel size of each rendered image
+        token_ttl=1800,   # solution token lifetime in seconds
+    ),
+)
+```
+
+#### Credits: Model
+
+[Low Poly Cat](https://skfb.ly/OqVx) by volkanongun — [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 
 ### Third-party CAPTCHA challenge
 
