@@ -241,75 +241,30 @@ def _load_mesh(gltf_path=None):
     return _mesh_cache
 
 
-def _sample_mesh_surface(mesh, count, rng):
-    positions = mesh["positions"]
-    normals = mesh["normals"]
-    indices = mesh["indices"]
-    triangle_count = mesh["triangle_count"]
+def _sample_surface_np(mesh, count, seed):
+    import numpy as np
 
-    areas = []
-    total_area = 0.0
+    pos = np.asarray(mesh["positions"], dtype=np.float32).reshape(-1, 3)
+    idx = np.asarray(mesh["indices"], dtype=np.int32).reshape(-1, 3)
 
-    for t in range(triangle_count):
-        i0 = indices[t * 3] * 3
-        i1 = indices[t * 3 + 1] * 3
-        i2 = indices[t * 3 + 2] * 3
+    v0, v1, v2 = pos[idx[:, 0]], pos[idx[:, 1]], pos[idx[:, 2]]
+    areas = np.linalg.norm(np.cross(v1 - v0, v2 - v0), axis=1)
+    total = areas.sum()
+    if total == 0:
+        total = 1.0
+    probs = areas / total
 
-        ax = positions[i1] - positions[i0]
-        ay = positions[i1 + 1] - positions[i0 + 1]
-        az = positions[i1 + 2] - positions[i0 + 2]
-        bx = positions[i2] - positions[i0]
-        by = positions[i2 + 1] - positions[i0 + 1]
-        bz = positions[i2 + 2] - positions[i0 + 2]
+    rng = np.random.default_rng(seed)
+    ti = rng.choice(len(areas), size=count, p=probs)
 
-        cx = ay * bz - az * by
-        cy = az * bx - ax * bz
-        cz = ax * by - ay * bx
-        area = math.sqrt(cx * cx + cy * cy + cz * cz) * 0.5
-        areas.append(area)
-        total_area += area
+    u = rng.random(count, dtype=np.float32)
+    v = rng.random(count, dtype=np.float32)
+    flip = u + v > 1
+    u[flip] = 1 - u[flip]
+    v[flip] = 1 - v[flip]
+    w = 1 - u - v
 
-    if total_area == 0:
-        total_area = 1.0
-
-    cdf = []
-    running = 0.0
-    for a in areas:
-        running += a / total_area
-        cdf.append(running)
-
-    points = []
-    point_normals = []
-
-    for _ in range(count):
-        r = rng()
-        lo, hi = 0, triangle_count - 1
-        while lo < hi:
-            mid = (lo + hi) >> 1
-            if cdf[mid] < r:
-                lo = mid + 1
-            else:
-                hi = mid
-        tri_idx = lo
-
-        u, v = rng(), rng()
-        if u + v > 1:
-            u, v = 1 - u, 1 - v
-        w = 1 - u - v
-
-        i0 = indices[tri_idx * 3] * 3
-        i1 = indices[tri_idx * 3 + 1] * 3
-        i2 = indices[tri_idx * 3 + 2] * 3
-
-        for c in range(3):
-            points.append(
-                positions[i0 + c] * w + positions[i1 + c] * u + positions[i2 + c] * v
-            )
-            point_normals.append(
-                normals[i0 + c] * w + normals[i1 + c] * u + normals[i2 + c] * v
-            )
-
-    return {"points": points, "normals": point_normals, "count": count}
+    return v0[ti] * w[:, None] + v1[ti] * u[:, None] + v2[ti] * v[:, None]
 
 
 def _build_matrices(mesh, angle_deg, fov, camera_distance, camera_elevation):
@@ -338,49 +293,23 @@ def _np_add_noise(arr, scale, seed):
     return np.clip(arr.astype(np.float32) + noise, 0, 255).astype(np.uint8)
 
 
-def _np_radial_gradient(radius, color_stops):
+def _batch_transform(mat_flat, points):
     import numpy as np
-    from PIL import Image
 
-    d = radius * 2
-    yy, xx = np.mgrid[0:d, 0:d]
-    dx = xx - radius + 0.5
-    dy = yy - radius + 0.5
-    dist = np.sqrt(dx * dx + dy * dy) / radius
-
-    out = np.zeros((d, d, 4), dtype=np.float32)
-    for i in range(len(color_stops) - 1):
-        t0, c0 = color_stops[i]
-        t1, c1 = color_stops[i + 1]
-        mask = (dist >= t0) & (dist < t1)
-        if not mask.any():
-            continue
-        f = np.where(t1 > t0, (dist - t0) / (t1 - t0), 0.0)
-        for ch in range(4):
-            out[..., ch] = np.where(
-                mask,
-                out[..., ch] + (c0[ch] + (c1[ch] - c0[ch]) * f),
-                out[..., ch],
-            )
-
-    out[dist >= 1.0] = 0
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
+    mat = np.asarray(mat_flat, dtype=np.float32).reshape(4, 4)
+    ones = np.ones((len(points), 1), dtype=np.float32)
+    return np.hstack([points, ones]) @ mat
 
 
-def _make_splat_template(radius, alpha_base=0.3):
-    a0 = int((alpha_base + 0.15) * 255)
-    a1 = int(alpha_base * 255)
-    a2 = int(alpha_base * 0.4 * 255)
+def _batch_to_screen(clip, size):
+    import numpy as np
 
-    return _np_radial_gradient(
-        radius,
-        [
-            (0.0, (255, 255, 255, a0)),
-            (0.35, (235, 240, 245, a1)),
-            (0.7, (200, 210, 220, a2)),
-            (1.0, (180, 190, 200, 0)),
-        ],
-    )
+    valid = clip[:, 3] > 0
+    inv_w = np.where(valid, 1.0 / np.maximum(clip[:, 3], 1e-10), 0)
+    sx = (clip[:, 0] * inv_w * 0.5 + 0.5) * size
+    sy = (1.0 - (clip[:, 1] * inv_w * 0.5 + 0.5)) * size
+    sz = clip[:, 2] * inv_w
+    return np.column_stack([sx, sy, sz]), valid
 
 
 def _render_reference(mesh, angle_deg, size=300):
@@ -389,247 +318,227 @@ def _render_reference(mesh, angle_deg, size=300):
         from PIL import Image, ImageDraw
     except ImportError as e:
         raise ImportError(
-            "Pillow and numpy are required for RotationCaptcha: "
-            "pip install tollbooth[image]"
+            "Pillow and numpy are required for "
+            "RotationCaptcha: pip install tollbooth[image]"
         ) from e
 
-    fov = 45
-    camera_distance = 3.2
-    camera_elevation = 0.35
-    light_dir = _v3normalize([0.5, 0.8, 0.6])
-    shadow_dir = _v3normalize([-0.4, -1.0, -0.3])
-    ambient = 0.3
-    base_color = [200, 175, 145]
+    fov, cam_dist, cam_elev = 45, 3.2, 0.35
+    light = np.array([0.5, 0.8, 0.6], dtype=np.float32)
+    light /= np.linalg.norm(light)
+    base_color = np.array([200, 175, 145], dtype=np.float32)
 
-    matrices = _build_matrices(mesh, angle_deg, fov, camera_distance, camera_elevation)
-    model = matrices["model"]
-    vp = matrices["vp"]
-    eye = matrices["eye"]
+    matrices = _build_matrices(mesh, angle_deg, fov, cam_dist, cam_elev)
+    eye = np.array(matrices["eye"], dtype=np.float32)
+
+    pos = np.asarray(mesh["positions"], dtype=np.float32).reshape(-1, 3)
+    idx = np.asarray(mesh["indices"], dtype=np.int32).reshape(-1, 3)
+
+    world = _batch_transform(matrices["model"], pos)[:, :3]
+    clip = _batch_transform(matrices["mvp"], pos)
+    screen, valid = _batch_to_screen(clip, size)
+
+    v0, v1, v2 = (
+        world[idx[:, 0]],
+        world[idx[:, 1]],
+        world[idx[:, 2]],
+    )
+    normals = np.cross(v1 - v0, v2 - v0)
+    normals /= np.linalg.norm(normals, axis=1, keepdims=True) + 1e-10
+
+    centers = (v0 + v1 + v2) / 3
+    to_eye = eye - centers
+    to_eye /= np.linalg.norm(to_eye, axis=1, keepdims=True) + 1e-10
+    facing = np.sum(normals * to_eye, axis=1)
+    normals[facing < 0] *= -1
+
+    diff = np.maximum(0, np.sum(normals * light, axis=1))
+    brightness = 0.3 + 0.7 * diff
+    colors = np.clip(base_color * brightness[:, None], 0, 255).astype(np.uint8)
+
+    avg_z = (screen[idx[:, 0], 2] + screen[idx[:, 1], 2] + screen[idx[:, 2], 2]) / 3
+    tri_valid = valid[idx[:, 0]] & valid[idx[:, 1]] & valid[idx[:, 2]]
+    order = np.argsort(-avg_z)
 
     ys = np.linspace(0, 1, size, dtype=np.float32)
     bg = np.stack(
         [
-            (232 * (1 - ys) + 192 * ys).astype(np.uint8),
-            (228 * (1 - ys) + 188 * ys).astype(np.uint8),
-            (224 * (1 - ys) + 184 * ys).astype(np.uint8),
+            (232 * (1 - ys) + 192 * ys),
+            (228 * (1 - ys) + 188 * ys),
+            (224 * (1 - ys) + 184 * ys),
         ],
         axis=1,
-    )
+    ).astype(np.uint8)
     bg_arr = np.repeat(bg[:, np.newaxis, :], size, axis=1)
-    img = Image.fromarray(bg_arr, "RGB")
 
-    positions = mesh["positions"]
-    indices = mesh["indices"]
-    triangle_count = mesh["triangle_count"]
+    img = Image.fromarray(bg_arr, "RGB").convert("RGBA")
 
-    triangles = []
-    shadows = []
+    shadow_dir = np.array([-0.4, -1.0, -0.3], dtype=np.float32)
+    shadow_dir /= np.linalg.norm(shadow_dir)
 
-    for t in range(triangle_count):
-        idx = [indices[t * 3], indices[t * 3 + 1], indices[t * 3 + 2]]
+    if shadow_dir[1] < 0:
+        t_vals = -world[:, 1] / shadow_dir[1]
+        shadow_w = world + shadow_dir * t_vals[:, None]
+        shadow_w[:, 1] = 0.0
+        shadow_clip = _batch_transform(matrices["vp"], shadow_w)
+        shadow_screen, shadow_valid = _batch_to_screen(shadow_clip, size)
+        shadow_valid &= t_vals > 0
 
-        world_pos = []
-        for i in idx:
-            p = [positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]]
-            tp = _transform_point(model, p)
-            world_pos.append([tp[0], tp[1], tp[2]])
+        shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow_layer)
 
-        edge1 = _v3sub(world_pos[1], world_pos[0])
-        edge2 = _v3sub(world_pos[2], world_pos[0])
-        face_normal = _v3normalize(_v3cross(edge1, edge2))
+        for t in order:
+            if not tri_valid[t]:
+                continue
+            i0, i1, i2 = idx[t]
+            if not (shadow_valid[i0] and shadow_valid[i1] and shadow_valid[i2]):
+                continue
+            shadow_draw.polygon(
+                [
+                    (float(shadow_screen[i0, 0]), float(shadow_screen[i0, 1])),
+                    (float(shadow_screen[i1, 0]), float(shadow_screen[i1, 1])),
+                    (float(shadow_screen[i2, 0]), float(shadow_screen[i2, 1])),
+                ],
+                fill=(60, 55, 50, 51),
+            )
 
-        tri_center = _v3scale(
-            _v3add(_v3add(world_pos[0], world_pos[1]), world_pos[2]),
-            1.0 / 3.0,
-        )
-        to_camera = _v3normalize(_v3sub(eye, tri_center))
-
-        if _v3dot(face_normal, to_camera) < 0:
-            face_normal = [-face_normal[0], -face_normal[1], -face_normal[2]]
-
-        screen_verts = []
-        skip = False
-        for wp in world_pos:
-            clip = _transform_point(vp, wp)
-            sv = _clip_to_screen(clip, size)
-            if sv is None:
-                skip = True
-                break
-            screen_verts.append(sv)
-
-        if skip:
-            continue
-
-        diff = max(0.0, _v3dot(face_normal, light_dir))
-        brightness = ambient + (1 - ambient) * diff
-        color = tuple(min(255, round(base_color[c] * brightness)) for c in range(3))
-
-        avg_z = sum(sv[2] for sv in screen_verts) / 3
-        triangles.append((screen_verts, color, avg_z))
-
-        shadow_verts = []
-        shadow_ok = True
-        for wp in world_pos:
-            if shadow_dir[1] >= 0:
-                shadow_ok = False
-                break
-            t_val = (0.0 - wp[1]) / shadow_dir[1]
-            if t_val < 0:
-                shadow_ok = False
-                break
-            sp = [
-                wp[0] + shadow_dir[0] * t_val,
-                0.0,
-                wp[2] + shadow_dir[2] * t_val,
-            ]
-            clip = _transform_point(vp, sp)
-            sv = _clip_to_screen(clip, size)
-            if sv is None:
-                shadow_ok = False
-                break
-            shadow_verts.append(sv)
-
-        if shadow_ok:
-            shadows.append((shadow_verts, avg_z + 100))
-
-    shadows.sort(key=lambda s: -s[1])
-    shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow_layer)
-    for verts, _ in shadows:
-        poly = [(v[0], v[1]) for v in verts]
-        shadow_draw.polygon(poly, fill=(60, 55, 50, 51))
-    img = Image.alpha_composite(img.convert("RGBA"), shadow_layer)
+        img = Image.alpha_composite(img, shadow_layer)
 
     tri_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    tri_draw = ImageDraw.Draw(tri_layer)
-    triangles.sort(key=lambda t: -t[2])
-    for verts, color, _ in triangles:
-        poly = [(v[0], v[1]) for v in verts]
-        tri_draw.polygon(poly, fill=(*color, 255))
+    draw = ImageDraw.Draw(tri_layer)
+
+    for t in order:
+        if not tri_valid[t]:
+            continue
+        i0, i1, i2 = idx[t]
+        draw.polygon(
+            [
+                (float(screen[i0, 0]), float(screen[i0, 1])),
+                (float(screen[i1, 0]), float(screen[i1, 1])),
+                (float(screen[i2, 0]), float(screen[i2, 1])),
+            ],
+            fill=(*tuple(colors[t]), 255),
+        )
+
     img = Image.alpha_composite(img, tri_layer).convert("RGB")
 
-    small_size = round(size * 0.45)
-    img = img.resize((small_size, small_size), Image.Resampling.BILINEAR).resize(
+    small = round(size * 0.45)
+    img = img.resize((small, small), Image.Resampling.BILINEAR).resize(
         (size, size), Image.Resampling.BILINEAR
     )
 
     arr = _np_add_noise(np.array(img), 35, int(angle_deg * 997))
-    img = Image.fromarray(arr)
 
     buf = BytesIO()
-    img.save(buf, format="PNG")
+    Image.fromarray(arr).save(buf, format="WEBP", quality=72, method=4)
     return buf.getvalue()
 
 
-def _render_splat(mesh, angle_deg, seed, size=300):
-    try:
-        import numpy as np
-        from PIL import Image
-    except ImportError as e:
-        raise ImportError(
-            "Pillow and numpy are required for RotationCaptcha: "
-            "pip install tollbooth[image]"
-        ) from e
+_splat_cache = {}
 
-    fov = 45
-    camera_distance = 3.2
-    camera_elevation = 0.35
-    splat_count = 1200
-    splat_world_radius = 0.055
 
-    rng = _create_rng(seed)
-    samples = _sample_mesh_surface(mesh, splat_count, rng)
+def _splat_template(radius):
+    if radius in _splat_cache:
+        return _splat_cache[radius]
 
-    img = Image.new("RGBA", (size, size), (26, 28, 46, 255))
+    import numpy as np
+    from PIL import Image
 
-    bg_count = 55
-    cols = math.ceil(math.sqrt(bg_count))
-    cell_size = size / cols
-    for i in range(bg_count):
-        col = i % cols
-        row = i // cols
-        sx = (col + 0.3 + rng() * 0.4) * cell_size
-        sy = (row + 0.3 + rng() * 0.4) * cell_size
-        sr = max(2, int(18 + rng() * 30))
-        warmth = rng()
-        alpha = 0.1 + rng() * 0.2
+    d = radius * 2
+    coords = np.arange(d, dtype=np.float32) - radius + 0.5
+    dist = np.sqrt(coords[None, :] ** 2 + coords[:, None] ** 2) / radius
 
-        cr = int(200 + warmth * 55)
-        cg = int(205 + warmth * 40)
-        cb = int(215 + warmth * 25)
-        a = int(alpha * 255)
-        a2 = int(alpha * 0.5 * 255)
+    alpha_center = 0.45
+    alpha_mid = 0.30
+    alpha_edge = 0.10
 
-        bg_grad = _np_radial_gradient(
-            sr,
-            [
-                (0.0, (cr, cg, cb, a)),
-                (0.5, (cr - 40, cg - 35, cb - 30, a2)),
-                (1.0, (cr - 80, cg - 70, cb - 60, 0)),
-            ],
+    alpha = np.where(
+        dist < 0.35,
+        alpha_center + (alpha_mid - alpha_center) * (dist / 0.35),
+        np.where(
+            dist < 0.7,
+            alpha_mid + (alpha_edge - alpha_mid) * ((dist - 0.35) / 0.35),
+            np.where(
+                dist < 1.0,
+                alpha_edge * (1.0 - (dist - 0.7) / 0.3),
+                0.0,
+            ),
+        ),
+    )
+
+    r = np.where(dist < 0.35, 255, np.where(dist < 0.7, 235, 200))
+    g = np.where(dist < 0.35, 255, np.where(dist < 0.7, 240, 210))
+    b = np.where(dist < 0.35, 255, np.where(dist < 0.7, 245, 220))
+
+    out = np.stack([r, g, b, alpha * 255], axis=-1)
+    out = np.clip(out, 0, 255).astype(np.uint8)
+
+    img = Image.fromarray(out, "RGBA")
+    _splat_cache[radius] = img
+    return img
+
+
+def _render_splat_image(mesh, angle_deg, seed, size=300):
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    rng_np = np.random.default_rng(seed)
+    points = _sample_surface_np(mesh, 900, seed)
+
+    canvas = Image.new("RGBA", (size, size), (26, 28, 46, 255))
+    draw = ImageDraw.Draw(canvas)
+
+    cols = math.ceil(math.sqrt(30))
+    cell = size / cols
+    for i in range(30):
+        col, row = i % cols, i // cols
+        sx = (col + 0.3 + float(rng_np.random()) * 0.4) * cell
+        sy = (row + 0.3 + float(rng_np.random()) * 0.4) * cell
+        sr = int(12 + rng_np.random() * 20)
+        warmth = float(rng_np.random())
+        alpha = int((0.02 + float(rng_np.random()) * 0.04) * 255)
+
+        cr = int(35 + warmth * 20)
+        cg = int(33 + warmth * 18)
+        cb = int(55 + warmth * 15)
+
+        draw.ellipse(
+            [sx - sr, sy - sr, sx + sr, sy + sr],
+            fill=(cr, cg, cb, alpha),
         )
-        img.alpha_composite(bg_grad, (int(sx - sr), int(sy - sr)))
 
-    matrices = _build_matrices(mesh, angle_deg, fov, camera_distance, camera_elevation)
-    mvp = matrices["mvp"]
-    focal_len = size / (2 * math.tan((fov * _DEG) / 2))
+    matrices = _build_matrices(mesh, angle_deg, 45, 3.2, 0.35)
+    clip = _batch_transform(matrices["mvp"], points)
+    screen, valid = _batch_to_screen(clip, size)
+    focal = size / (2 * math.tan(45 * _DEG / 2))
 
-    projected = []
-    for i in range(samples["count"]):
-        p = [
-            samples["points"][i * 3],
-            samples["points"][i * 3 + 1],
-            samples["points"][i * 3 + 2],
-        ]
-        clip = _transform_point(mvp, p)
-        if clip[3] <= 0.01:
+    order = np.argsort(-screen[:, 2])
+    skip_mask = rng_np.random(len(order)) < 0.15
+
+    for i in order:
+        if not valid[i] or skip_mask[i]:
             continue
 
-        screen = _clip_to_screen(clip, size)
-        if screen is None:
-            continue
+        x = float(screen[i, 0])
+        y = float(screen[i, 1])
+        r = max(4, int(0.055 * focal / clip[i, 3]))
 
-        screen_radius = max(4, (splat_world_radius * focal_len) / clip[3])
-        projected.append((screen[0], screen[1], screen[2], screen_radius))
+        template = _splat_template(r)
+        canvas.alpha_composite(template, (int(x - r), int(y - r)))
 
-    projected.sort(key=lambda s: -s[2])
-
-    splat_cache = {}
-    for x, y, _, radius in projected:
-        rng()
-        r_int = max(2, int(radius))
-
-        if r_int not in splat_cache:
-            splat_cache[r_int] = _make_splat_template(r_int)
-
-        template = splat_cache[r_int]
-        img.alpha_composite(template, (int(x - r_int), int(y - r_int)))
-
-    decoy_count = 25 + int(rng() * 20)
-    for _ in range(decoy_count):
-        dx, dy = rng() * size, rng() * size
-        dr = max(2, int(4 + rng() * 10))
-        da = 0.08 + rng() * 0.18
+    for _ in range(20):
+        dx = float(rng_np.random()) * size
+        dy = float(rng_np.random()) * size
+        dr = max(3, int(4 + rng_np.random() * 10))
+        da = 0.08 + float(rng_np.random()) * 0.18
 
         a0 = int((da + 0.1) * 255)
         a1 = int(da * 0.5 * 255)
-        decoy = _np_radial_gradient(
-            dr,
-            [
-                (0.0, (250, 252, 255, a0)),
-                (0.5, (220, 225, 235, a1)),
-                (1.0, (200, 210, 220, 0)),
-            ],
-        )
-        img.alpha_composite(decoy, (int(dx - dr), int(dy - dr)))
 
-    img_rgb = img.convert("RGB")
-    arr = _np_add_noise(np.array(img_rgb), 22, seed + 3571)
-    img_rgb = Image.fromarray(arr)
+        decoy = _splat_template(dr)
+        canvas.alpha_composite(decoy, (int(dx - dr), int(dy - dr)))
 
-    buf = BytesIO()
-    img_rgb.save(buf, format="PNG")
-    return buf.getvalue()
+    arr = _np_add_noise(np.array(canvas.convert("RGB")), 22, seed + 3571)
+    return Image.fromarray(arr)
 
 
 def _render_sprite_sheet(mesh, angles, seed, size=300):
@@ -639,7 +548,7 @@ def _render_sprite_sheet(mesh, angles, seed, size=300):
 
     def render_frame(args):
         i, angle = args
-        return i, Image.open(BytesIO(_render_splat(mesh, angle, seed + i * 7919, size)))
+        return i, _render_splat_image(mesh, angle, seed + i * 7919, size)
 
     count = len(angles)
     sheet = Image.new("RGB", (size * count, size))
@@ -649,7 +558,7 @@ def _render_sprite_sheet(mesh, angles, seed, size=300):
             sheet.paste(tile, (i * size, 0))
 
     buf = BytesIO()
-    sheet.save(buf, format="PNG", optimize=True)
+    sheet.save(buf, format="WEBP", quality=72, method=4)
     return buf.getvalue()
 
 
